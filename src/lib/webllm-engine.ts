@@ -1,10 +1,20 @@
 /**
  * webllm-engine.ts — singleton WebLLM loader for in-browser LLM inference.
  *
- * Hermes Portable uses WebLLM (MLC-AI) with Phi-3.5-mini-instruct as the
+ * Hermes Portable uses WebLLM (MLC-AI) with Hermes-3-Llama-3.1-8B as the
  * runtime model. The engine is loaded lazily on the first user activity
- * (mouse/key/scroll/touch) so the 2GB model download doesn't block the
+ * (mouse/key/scroll/touch) so the ~4.5GB model download doesn't block the
  * landing page render.
+ *
+ * We need tool/function-calling support because the agent must invoke the
+ * broker_session skill (open/extend/close) on user prompts. Phi-3.5-mini
+ * does NOT support ChatCompletionRequest.tools in WebLLM 0.2.78 — only
+ * the Hermes-2-Pro and Hermes-3 families do. Hermes-3-Llama-3.1-8B-q4f16_1
+ * is the smallest tool-capable model in the catalog (~4.5GB weights),
+ * and is the auto-selected default. If the preferred model fails to load
+ * we automatically retry with the first entry in
+ * `webllm.functionCallingModelIds`, so the engine is self-healing across
+ * WebLLM version bumps.
  *
  * After load, every call returns the same engine instance. The model is
  * cached in the browser's Cache Storage so subsequent visits skip the
@@ -18,10 +28,10 @@
 const WEBLLM_VERSION = '0.2.78';  // pinned to the verified spike version
 const WEBLLM_CDN = `https://esm.run/@mlc-ai/web-llm@${WEBLLM_VERSION}`;
 
-// Phi-3.5-mini-instruct, q4f16_1 quantisation, ~2.0GB VRAM. Best
-// function-calling in WebLLM's catalog per browser-pyodide-agent-runtime
-// skill pitfall #3.
-export const PORTABLE_MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
+// Hermes-3-Llama-3.1-8B, q4f16_1 quantisation, ~4.5GB weights.
+// Tool-capable: supports ChatCompletionRequest.tools (Phi-3.5-mini does
+// not — see WebLLM 0.2.78's functionCallingModelIds).
+export const PORTABLE_MODEL_ID = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC';
 
 declare global {
   interface Window {
@@ -64,7 +74,7 @@ export function getEngineState(): EngineState {
 }
 
 /**
- * Lazily load WebLLM and the Phi-3.5-mini-instruct model. Returns a
+ * Lazily load WebLLM and a tool-capable chat model. Returns a
  * callable MLCEngine. Idempotent: subsequent calls return the same promise.
  *
  * The function emits progress events via onEngineState() so the UI can
@@ -74,7 +84,7 @@ export function getEngineState(): EngineState {
  * to the Pyodide explainer fallback.
  */
 export async function loadWebLLM(opts?: {
-  /** Override the model id. Default: Phi-3.5-mini-instruct-q4f16_1-MLC. */
+  /** Override the model id. Default: Hermes-3-Llama-3.1-8B-q4f16_1-MLC. */
   model?: string;
   /** Optional progress callback (0..1). */
   onProgress?: (p: number) => void;
@@ -131,15 +141,56 @@ export async function loadWebLLM(opts?: {
       opts?.onProgress?.(p);
     };
 
-    const engine = await webllm.CreateMLCEngine(modelId, {
-      initProgressCallback,
-      // Use the cached model list shipped with WebLLM.
-      appConfig: undefined,
-    });
-
-    window.__vfWebLLMReady = true;
-    setState({ status: 'ready', progress: 1 });
-    return engine;
+    // Build the candidate model list. We always try the preferred
+    // model first; if it errors (e.g. weight download fails, model
+    // renamed in a newer WebLLM catalog) we walk through the rest of
+    // the tool-capable models in order. This makes the engine
+    // self-healing across WebLLM version bumps — the next agent
+    // won't have to repeat today's "swap Phi for Hermes-3" debug.
+    const candidates: string[] = [modelId];
+    const toolModels: string[] | undefined = webllm.functionCallingModelIds;
+    if (Array.isArray(toolModels)) {
+      for (const m of toolModels) {
+        if (!candidates.includes(m)) candidates.push(m);
+      }
+    }
+    // Track which candidate we landed on so the UI can show it.
+    let lastError: unknown = null;
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      try {
+        const engine = await webllm.CreateMLCEngine(candidate, {
+          initProgressCallback,
+          // Use the cached model list shipped with WebLLM.
+          appConfig: undefined,
+        });
+        window.__vfWebLLMReady = true;
+        setState({ status: 'ready', progress: 1, model: candidate });
+        if (candidate !== modelId) {
+          // Surface the swap so logs and any observers can see we
+          // degraded from the preferred model.
+          console.warn(
+            `[webllm-engine] preferred model ${modelId} unavailable; ` +
+            `using fallback ${candidate}.`,
+          );
+        }
+        return engine;
+      } catch (err) {
+        lastError = err;
+        if (i < candidates.length - 1) {
+          console.warn(
+            `[webllm-engine] model ${candidate} failed to load, ` +
+            `trying next candidate.`,
+            err,
+          );
+          continue;
+        }
+        // Exhausted candidates — rethrow the last error.
+        throw err;
+      }
+    }
+    // Unreachable: the loop either returns or throws.
+    throw lastError ?? new Error('No candidate models available');
   })().catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);
     setState({ status: 'error', error: msg });
@@ -163,7 +214,7 @@ export function warmUpOnActivity(): void {
   _warmedUp = true;
 
   const kickoff = () => {
-    // Activity fired — start the 2GB download in the background.
+    // Activity fired — start the ~4.5GB download in the background.
     loadWebLLM().catch(() => {
       // Failure is non-fatal; UI will read state and show fallback.
       _warmedUp = false;  // allow retry on next activity
