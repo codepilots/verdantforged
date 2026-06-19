@@ -1,0 +1,27 @@
+# VerdantForged marketing site — gitignore
+node_modules/
+dist/
+.astro/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Env / secrets
+.env
+.env.local
+.env.production
+
+# Build outputs
+*.log
+npm-debug.log*
+
+# Local cast recordings before they're ready to ship
+public/demo.cast.bak
+public/demo.cast.tmp

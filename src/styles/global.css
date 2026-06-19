@@ -1,0 +1,139 @@
+/* VerdantForged — global styles
+   Apple-clean type, copper + verdigris accents, paper texture
+   LOCKED palette — see PROPOSAL.md */
+
+/* Webfonts — must come before @tailwind per PostCSS spec */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base ────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    /* Smooth scroll, hardware-accelerated */
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    /* Subtle paper-grain texture — 2% opacity, warm tint */
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.92 0 0 0 0 0.85 0 0 0 0 0.72 0 0 0 0.025 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-repeat: repeat;
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+
+  ::selection {
+    background-color: #b87333; /* copper */
+    color: #faf8f4;            /* bg */
+  }
+
+  /* Focus rings — verdigris for visibility, never copper (too low-contrast) */
+  :focus-visible {
+    outline: 2px solid #2d6a4f;
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}
+
+/* ─── Components ──────────────────────────────────────────────────── */
+@layer components {
+  .vf-container {
+    @apply mx-auto px-6 sm:px-8 lg:px-12 max-w-wide;
+  }
+
+  .vf-section {
+    @apply py-section-sm md:py-section;
+  }
+
+  .vf-heading-hero {
+    @apply text-display-sm md:text-display-md lg:text-display-lg text-verdigris-deep font-display font-semibold;
+  }
+
+  .vf-heading-section {
+    @apply text-display-md md:text-display-lg text-ink font-display font-semibold;
+  }
+
+  .vf-body-lead {
+    @apply text-body-lg text-ink-soft font-sans;
+  }
+
+  .vf-link {
+    @apply text-copper underline decoration-copper/30 underline-offset-4 transition-colors duration-250 hover:text-copper-deep hover:decoration-copper-deep;
+  }
+
+  .vf-button {
+    @apply inline-flex items-center gap-2 px-6 py-3 bg-copper text-bg font-medium rounded-full
+           transition-all duration-250 ease-apple-snap
+           hover:bg-copper-deep hover:-translate-y-0.5 hover:shadow-lg
+           focus-visible:bg-copper-deep;
+  }
+
+  .vf-button-ghost {
+    @apply inline-flex items-center gap-2 px-6 py-3 border border-ink/15 text-ink font-medium rounded-full
+           transition-all duration-250 ease-apple-snap
+           hover:border-ink hover:bg-ink hover:text-bg;
+  }
+
+  .vf-card {
+    @apply bg-bg border border-moss/30 rounded-2xl p-8 transition-all duration-400 ease-apple
+           hover:border-moss hover:shadow-sm;
+  }
+
+  .vf-divider {
+    @apply w-full h-px bg-moss/40;
+  }
+
+  .vf-eyebrow {
+    @apply text-caption font-mono uppercase tracking-widest text-copper-deep;
+  }
+
+  /* Animated entry on scroll — applied via JS to .vf-reveal */
+  .vf-reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 600ms cubic-bezier(0.25, 0.1, 0.25, 1),
+                transform 600ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+  .vf-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Code blocks — bark background, copper keywords */
+  .vf-code {
+    @apply font-mono text-body-sm bg-bark text-bg/90 rounded-xl p-5 overflow-x-auto;
+  }
+  .vf-code .kw { @apply text-copper; }
+  .vf-code .str { @apply text-verdigris; }
+  .vf-code .cmt { @apply text-ink-soft; }
+}
+
+/* ─── Utilities ───────────────────────────────────────────────────── */
+@layer utilities {
+  .vf-text-balance { text-wrap: balance; }
+  .vf-text-pretty { text-wrap: pretty; }
+
+  /* Section sizes — Apple uses 60–80vh between sections */
+  .section-sm { @apply py-16 md:py-24; }
+  .section    { @apply py-24 md:py-38; }
+  .section-lg { @apply py-38 md:py-48; }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

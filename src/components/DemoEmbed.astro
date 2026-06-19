@@ -1,0 +1,99 @@
+---
+/**
+ * DemoEmbed — asciinema cast placeholder
+ * The actual cast file lives at /demo.cast (Autumn records it after I write the script).
+ * Until then, this section shows a clean fallback with the asciinema-player ready to go.
+ *
+ * asciinema-player is loaded via CDN, lazy on scroll.
+ */
+
+const castUrl = '/demo.cast';
+---
+
+<section id="demo" class="vf-container section" aria-labelledby="demo-heading">
+  <p class="vf-eyebrow">See it run</p>
+  <h2 id="demo-heading" class="vf-heading-section mt-6 max-w-4xl">
+    Three terminals. Three minutes.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    The actual demo orchestration, recorded on a fresh NemoClaw dev sandbox: the
+    Provider compiles and publishes a WASM skill, the Requester fetches the
+    manifest and submits encrypted data, the Broker executes and triggers MPP
+    release.
+  </p>
+
+  <!-- Cast player container -->
+  <div class="mt-16 max-w-4xl mx-auto">
+    <div
+      id="asciinema-player"
+      data-cast-url={castUrl}
+      class="rounded-2xl overflow-hidden bg-bark shadow-lg aspect-video flex items-center justify-center"
+      role="img"
+      aria-label="Asciinema cast of the full VerdantForged protocol run"
+    >
+      <!-- Fallback shown until JS hydrates the player -->
+      <div class="text-center p-12 text-bg/80 font-mono text-body-sm">
+        <div class="text-verdigris mb-4 text-caption tracking-widest uppercase">cast loading...</div>
+        <div class="text-ink-soft">cast file: {castUrl}</div>
+        <div class="text-ink-soft mt-2">≈ 38 KB · autoplay on scroll · 3 min</div>
+      </div>
+    </div>
+
+    <p class="mt-6 text-body-sm text-ink-soft">
+      Recorded on a clean NemoClaw dev sandbox. The cast is 38 KB — pure text, no
+      video, plays in any browser. Full transcript and breakdown available in
+      <a href="/demo-transcript.md" class="vf-link">demo-transcript.md</a>.
+    </p>
+  </div>
+</section>
+
+<script>
+  // Lazy-load asciinema-player when the section enters viewport.
+  // Falls back gracefully if the cast file isn't present yet (still shows the placeholder).
+  const target = document.getElementById('asciinema-player');
+  if (target) {
+    const observer = new IntersectionObserver(async (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting && !target.dataset.loaded) {
+          target.dataset.loaded = 'true';
+
+          // Fetch the cast file to check if it exists.
+          // If 404, leave the fallback in place (it's still informative).
+          const castUrl = (target as HTMLElement).dataset.castUrl ?? '/demo.cast';
+          try {
+            const head = await fetch(castUrl, { method: 'HEAD' });
+            if (!head.ok) {
+              console.warn(`[DemoEmbed] cast file ${castUrl} not yet available (${head.status}) — showing placeholder.`);
+              return;
+            }
+
+            // Load asciinema-player CSS
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = 'https://cdn.jsdelivr.net/npm/asciinema-player@3.10.0/dist/bundle/asciinema-player.css';
+            document.head.appendChild(css);
+
+            // Load asciinema-player JS module
+            const mod = await import('https://cdn.jsdelivr.net/npm/asciinema-player@3.10.0/dist/bundle/asciinema-player.min.js');
+            const AsciinemaPlayer = (mod as any).default ?? mod;
+
+            // Replace the placeholder with the actual player.
+            target.innerHTML = '';
+            AsciinemaPlayer.create(castUrl, target, {
+              autoPlay: true,
+              loop: false,
+              theme: 'asciinema',
+              fit: 'width',
+              terminalFontFamily: '"JetBrains Mono", "SF Mono", monospace',
+              terminalFontSize: '14px',
+            });
+          } catch (err) {
+            console.warn('[DemoEmbed] failed to load cast:', err);
+          }
+        }
+      }
+    }, { rootMargin: '200px' });
+
+    observer.observe(target);
+  }
+</script>

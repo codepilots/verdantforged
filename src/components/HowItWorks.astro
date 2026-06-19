@@ -1,0 +1,142 @@
+---
+/**
+ * HowItWorks — 5-step protocol walkthrough
+ * Each step is a full-bleed section with a number, headline, body, and a small
+ * SVG diagram. Steps alternate left/right on desktop for rhythm.
+ */
+
+const steps = [
+  {
+    n: '01',
+    title: 'Agreement',
+    sub: 'P2P, off-chain',
+    body: 'The Skill Provider publishes a manifest — what the skill does, what fuel it needs, what attestation it requires. The Requester accepts, deposits the data hash, and creates an MPP escrow. No central party involved.',
+    diagram: 'manifest',
+  },
+  {
+    n: '02',
+    title: 'Attestation verification',
+    sub: 'Hardware-rooted',
+    body: 'The Requester pulls the Broker\'s attestation report from the enclave. Verifies the certificate chain against the AMD root. Confirms the measurement matches the approved skill-runner binary hash.',
+    diagram: 'attestation',
+  },
+  {
+    n: '03',
+    title: 'Encrypted payload',
+    sub: 'End-to-end encrypted',
+    body: 'Requester sends encrypted skill, encrypted data, result pubkey, and escrow ID to the Broker. The Broker cannot decrypt anything until it\'s inside the attested enclave, where it has the only matching key.',
+    diagram: 'payload',
+  },
+  {
+    n: '04',
+    title: 'Enclave execution',
+    sub: 'Inside NemoClaw',
+    body: 'Decrypt skill and data. Verify skill hash matches the manifest. Execute with fuel limits and no syscalls. Encrypt the result to the requester\'s pubkey. Call MPP release. The only allowed network egress.',
+    diagram: 'execute',
+  },
+  {
+    n: '05',
+    title: 'Result and payment',
+    sub: 'Released atomically',
+    body: 'Broker sends the encrypted result to the Requester. Requester decrypts locally. MPP releases payment to the Skill Provider. If execution fails or times out, escrow refunds the Requester automatically.',
+    diagram: 'payment',
+  },
+];
+---
+
+<section id="how-it-works" class="vf-container section" aria-labelledby="how-heading">
+  <p class="vf-eyebrow">Five steps</p>
+  <h2 id="how-heading" class="vf-heading-section mt-6 max-w-4xl">
+    Agreement to payment, end to end.
+  </h2>
+
+  <ol class="mt-24 space-y-30">
+    {steps.map((step, i) => (
+      <li class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 items-center">
+        <!-- Number column -->
+        <div class={`lg:col-span-3 ${i % 2 === 1 ? 'lg:order-2' : ''}`}>
+          <div class="text-display-lg font-display font-semibold text-copper-deep leading-none">
+            {step.n}
+          </div>
+          <p class="vf-eyebrow mt-4">{step.sub}</p>
+        </div>
+
+        <!-- Text column -->
+        <div class={`lg:col-span-5 ${i % 2 === 1 ? 'lg:order-1' : ''}`}>
+          <h3 class="text-display-sm font-display font-semibold text-ink">
+            {step.title}
+          </h3>
+          <p class="vf-body-lead mt-6 max-w-prose-vf">
+            {step.body}
+          </p>
+        </div>
+
+        <!-- Diagram column -->
+        <div class={`lg:col-span-4 ${i % 2 === 1 ? 'lg:order-3' : ''}`}>
+          <div class="vf-card aspect-square flex items-center justify-center">
+            <svg viewBox="0 0 200 200" class="w-full h-full p-4" aria-hidden="true">
+              <!-- Per-step mini-diagrams, stylized and minimal -->
+              {step.diagram === 'manifest' && (
+                <g>
+                  <rect x="40" y="60" width="120" height="80" rx="6" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <line x1="55" y1="80" x2="145" y2="80" stroke="#b87333" stroke-width="2"/>
+                  <line x1="55" y1="95" x2="125" y2="95" stroke="#5fa39a" stroke-width="1.5"/>
+                  <line x1="55" y1="110" x2="135" y2="110" stroke="#5fa39a" stroke-width="1.5"/>
+                  <line x1="55" y1="125" x2="115" y2="125" stroke="#5fa39a" stroke-width="1.5"/>
+                </g>
+              )}
+              {step.diagram === 'attestation' && (
+                <g>
+                  <rect x="60" y="40" width="80" height="120" rx="4" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="100" y="90" text-anchor="middle" font-size="10" font-family="JetBrains Mono" fill="#2d6a4f">SEV-SNP</text>
+                  <text x="100" y="110" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#4a4a45">measurement:</text>
+                  <text x="100" y="125" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">0x9af2...</text>
+                  <circle cx="100" cy="100" r="35" fill="none" stroke="#2d6a4f" stroke-width="1" opacity="0.4">
+                    <animate attributeName="r" values="33;45;33" dur="3s" repeatCount="indefinite"/>
+                  </circle>
+                </g>
+              )}
+              {step.diagram === 'payload' && (
+                <g>
+                  <rect x="40" y="80" width="50" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
+                  <rect x="110" y="80" width="50" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
+                  <path d="M 90 100 L 110 100" stroke="#b87333" stroke-width="1.5"/>
+                  <text x="65" y="105" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">E(skill)</text>
+                  <text x="135" y="105" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">E(data)</text>
+                  <text x="100" y="70" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#5fa39a">→ enclave</text>
+                </g>
+              )}
+              {step.diagram === 'execute' && (
+                <g>
+                  <rect x="50" y="50" width="100" height="100" rx="6" fill="none" stroke="#2d6a4f" stroke-width="2"/>
+                  <text x="100" y="105" text-anchor="middle" font-size="14" font-family="JetBrains Mono" fill="#2d6a4f" font-weight="600">WASM</text>
+                  <line x1="70" y1="70" x2="130" y2="70" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
+                  <line x1="70" y1="130" x2="130" y2="130" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
+                  <circle cx="80" cy="125" r="3" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/>
+                  </circle>
+                  <circle cx="100" cy="125" r="3" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.3s" repeatCount="indefinite"/>
+                  </circle>
+                  <circle cx="120" cy="125" r="3" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.6s" repeatCount="indefinite"/>
+                  </circle>
+                </g>
+              )}
+              {step.diagram === 'payment' && (
+                <g>
+                  <circle cx="60" cy="100" r="20" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="60" y="105" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#3b2e23">$</text>
+                  <circle cx="140" cy="100" r="20" fill="none" stroke="#2d6a4f" stroke-width="1.5"/>
+                  <text x="140" y="105" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#2d6a4f">$</text>
+                  <path d="M 85 100 L 115 100" stroke="#b87333" stroke-width="2" marker-end="url(#arrow)"/>
+                  <text x="100" y="85" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">MPP</text>
+                </g>
+              )}
+            </svg>
+          </div>
+        </div>
+      </li>
+    ))}
+  </ol>
+</section>

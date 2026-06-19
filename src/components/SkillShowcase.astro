@@ -1,0 +1,141 @@
+---
+/**
+ * SkillShowcase — the FIRST concrete sandbox flowing through VerdantForged.
+ *
+ * Pre-hackathon: a single hero skill (code-review-attested) running on
+ * Hermes-4-70B. The runtime is the showcase, not the model.
+ *
+ * Post-hackathon: any team can publish a SandboxManifest via Nostr and the
+ * marketplace will list it.
+ */
+
+const showcase = {
+  name: 'code-review-attested',
+  description: 'A code-review WASM skill running inside an attested Hermes Agent sandbox with Nous Hermes-4-70B as the reasoning model.',
+  runtime: 'Hermes Agent + Nous Hermes-4-70B',
+  limits: { fuel: 4096, maxLifetimeMin: 5, memoryGb: 2 },
+  price: '$0.001 per second of sandbox lifetime',
+  payment: 'x402 (Base USDC) or MPP (Solana USDC)',
+};
+---
+
+<section id="skills" class="vf-container section" aria-labelledby="skills-heading">
+  <p class="vf-eyebrow">The first sandbox</p>
+  <h2 id="skills-heading" class="vf-heading-section mt-6 max-w-4xl">
+    Inference is the runtime, not the product.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    The first concrete sandbox flowing through VerdantForged runs Nous Hermes-4
+    inside an attested enclave. Future sandboxes can swap the model, the skill,
+    or both — without changing the protocol.
+  </p>
+
+  <!-- Hero skill card -->
+  <div class="mt-16 max-w-4xl mx-auto">
+    <article class="vf-card relative overflow-hidden">
+      <!-- Status pill -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center gap-2 px-3 py-1 bg-verdigris-deep/10 border border-verdigris-deep/30 rounded-full text-caption font-mono text-verdigris-deep uppercase tracking-widest">
+            <span class="w-1.5 h-1.5 rounded-full bg-verdigris animate-pulse-verdigris"></span>
+            Listed
+          </span>
+          <span class="text-caption text-ink-soft font-mono">v0.1.0 · pre-hackathon</span>
+        </div>
+        <span class="vf-eyebrow text-ink-soft">Sandbox</span>
+      </div>
+
+      <h3 class="mt-8 text-display-sm font-display font-semibold text-ink">
+        <code class="text-copper">{showcase.name}</code>
+      </h3>
+      <p class="vf-body-lead mt-4 max-w-prose-vf">
+        {showcase.description}
+      </p>
+
+      <!-- Spec grid -->
+      <dl class="mt-10 grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-6 border-t border-moss/30 pt-8">
+        <div>
+          <dt class="vf-eyebrow text-ink-soft">Runtime</dt>
+          <dd class="mt-2 text-body text-ink">{showcase.runtime}</dd>
+        </div>
+        <div>
+          <dt class="vf-eyebrow text-ink-soft">Payment rail</dt>
+          <dd class="mt-2 text-body text-ink">{showcase.payment}</dd>
+        </div>
+        <div>
+          <dt class="vf-eyebrow text-ink-soft">Sandbox limits</dt>
+          <dd class="mt-2 text-body text-ink">
+            {showcase.limits.fuel.toLocaleString()} fuel ·
+            {' '}{showcase.limits.maxLifetimeMin} min max ·
+            {' '}{showcase.limits.memoryGb} GB memory
+          </dd>
+        </div>
+        <div>
+          <dt class="vf-eyebrow text-ink-soft">Price</dt>
+          <dd class="mt-2 text-body text-copper-deep font-mono">{showcase.price}</dd>
+        </div>
+      </dl>
+
+      <!-- Pseudo manifest preview -->
+      <details class="mt-10">
+        <summary class="cursor-pointer text-caption font-mono uppercase tracking-widest text-ink-soft hover:text-copper transition-colors">
+          ▸ View SandboxManifest.toml
+        </summary>
+        <pre class="mt-4 vf-code text-body-sm overflow-x-auto"><code><span class="cmt"># SandboxManifest — published by the Skill Provider to Nostr</span>
+[skill]
+name     = <span class="str">"code-review-attested"</span>
+wasm     = <span class="str">"code-review.wasm"</span>
+sha256   = <span class="str">"9af2…"</span>
+
+[runtime]
+agent    = <span class="str">"hermes-agent"</span>
+model    = <span class="str">"nous/hermes-4-70b"</span>
+fuel     = <span class="kw">4096</span>
+
+[limits]
+max_lifetime_s  = <span class="kw">300</span>
+memory_gb       = <span class="kw">2</span>
+
+[attestation]
+require_sev_snp = <span class="kw">true</span>
+amd_root        = <span class="str">"AMD SEV-SNP Root Key (2024)"</span>
+
+[payment]
+rail   = <span class="str">"x402"</span>
+network = <span class="str">"base"</span>
+token  = <span class="str">"USDC"</span>
+price  = <span class="str">"$0.001 / second"</span></code></pre>
+      </details>
+    </article>
+  </div>
+
+  <!-- Register CTA -->
+  <div class="mt-24 max-w-3xl mx-auto text-center">
+    <p class="vf-eyebrow">Open marketplace</p>
+    <h3 class="mt-4 text-display-sm font-display font-semibold text-ink vf-text-balance">
+      Publish your own sandbox.
+    </h3>
+    <p class="vf-body-lead mt-6">
+      Post-hackathon: any team or agent can publish a SandboxManifest to Nostr and
+      have it listed here. The marketplace is open. The protocol is open. The
+      enclave is attested.
+    </p>
+    <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+      <a
+        href="https://github.com/hermes-agent/verdantforged/blob/main/SANDBOX_MANIFEST.md"
+        class="vf-button"
+      >
+        Read the manifest spec
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <a
+        href="https://github.com/hermes-agent/verdantforged/issues/new?template=register-skill.md"
+        class="vf-button-ghost"
+      >
+        Register your skill
+      </a>
+    </div>
+  </div>
+</section>

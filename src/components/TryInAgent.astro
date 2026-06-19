@@ -1,0 +1,120 @@
+---
+/**
+ * TryInAgent — the meta-pitch CTA, three entry points.
+ *
+ *   A. Try in browser  ← NEW: loads Pyodide + Hermes stub, no install needed
+ *   B. Paste prompt    ← for users with their own Hermes install
+ *   C. Direct download ← AGENT.md
+ */
+
+const hermesPrompt = `Install the VerdantForged skill from https://verdantforged.pages.dev/AGENT.md and walk me through what it does.`;
+---
+
+<section id="try" class="vf-container section" aria-labelledby="try-heading">
+  <p class="vf-eyebrow">Install the skill</p>
+  <h2 id="try-heading" class="vf-heading-section mt-6 max-w-4xl">
+    Three ways to try VerdantForged.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    No signup. No API key. No vendor lock-in. Pick the path that matches how
+    you already work.
+  </p>
+
+  <div class="mt-20 max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- A: Try in browser (Pyodide) -->
+    <div class="vf-card relative border-verdigris/40">
+      <span class="vf-eyebrow absolute top-6 right-6 text-verdigris-deep">Browser</span>
+      <h3 class="text-display-sm font-display font-semibold text-ink">
+        Try in browser
+      </h3>
+      <p class="text-body text-ink-soft mt-4">
+        Loads a cutdown Hermes Agent compiled to Python-in-WebAssembly (Pyodide)
+        right here. 2–5 second cold start. No install. Nothing leaves your device.
+      </p>
+      <button
+        type="button"
+        data-action="try-in-browser"
+        class="vf-button mt-8 w-full justify-center"
+      >
+        Open Hermes in browser
+      </button>
+      <p class="text-caption text-ink-soft mt-4 text-center font-mono">
+        Pyodide · ≈ 20 MB · runs locally
+      </p>
+    </div>
+
+    <!-- B: Paste prompt -->
+    <div class="vf-card">
+      <h3 class="text-display-sm font-display font-semibold text-ink">
+        Paste into chat
+      </h3>
+      <p class="text-body text-ink-soft mt-4">
+        Copy this prompt into your Hermes chat. The agent will fetch AGENT.md
+        and walk through the protocol.
+      </p>
+
+      <div class="mt-6 relative">
+        <textarea
+          id="hermes-prompt"
+          readonly
+          rows="3"
+          class="w-full p-4 bg-bark text-bg font-mono text-body-sm rounded-lg resize-none focus:outline-none"
+          aria-label="Hermes prompt to install the VerdantForged skill"
+        >{hermesPrompt}</textarea>
+        <button
+          type="button"
+          id="copy-prompt-btn"
+          class="absolute bottom-3 right-3 px-3 py-1.5 bg-copper text-bg text-caption rounded-md hover:bg-copper-deep transition-colors"
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+
+    <!-- C: Direct download -->
+    <div class="vf-card">
+      <h3 class="text-display-sm font-display font-semibold text-ink">
+        Direct download
+      </h3>
+      <p class="text-body text-ink-soft mt-4">
+        For users with their own agent runtime. Right-click → Save Link As, or
+        point your crawler at it.
+      </p>
+      <a
+        href="/AGENT.md"
+        download
+        class="vf-button mt-8 w-full justify-center"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1v10m0 0L4 7m4 4l4-4M2 14h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Download AGENT.md
+      </a>
+      <p class="text-caption text-ink-soft mt-4 text-center">
+        7 KB · plain markdown · no dependencies
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  const btn = document.getElementById('copy-prompt-btn');
+  const ta  = document.getElementById('hermes-prompt') as HTMLTextAreaElement | null;
+  if (btn && ta) {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(ta.value);
+        const original = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('bg-verdigris-deep');
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove('bg-verdigris-deep');
+        }, 1800);
+      } catch {
+        ta.select();
+        document.execCommand('copy');
+      }
+    });
+  }
+</script>

@@ -1,0 +1,197 @@
+---
+/**
+ * TrustLoop — the 3-agent centerpiece animation
+ * Three nodes (Provider / Requester / Broker) connected by flowing data.
+ * The Broker node pulses verdigris (attested/alive).
+ * GSAP timeline: continuous loop, 8s period.
+ *
+ * SVG-based so it scales and prints cleanly. No images, no canvas.
+ */
+
+const nodePositions = [
+  { id: 'provider',  cx: 160, cy: 200, label: 'Skill Provider', role: 'Owns the skill' },
+  { id: 'requester', cx: 640, cy: 200, label: 'Requester',     role: 'Owns the data' },
+  { id: 'broker',    cx: 400, cy: 440, label: 'Environment Broker', role: 'Runs the enclave', attested: true },
+];
+
+// Connection paths between nodes (Provider ↔ Requester via Broker)
+const paths = [
+  { d: 'M 160 200 Q 280 280 400 440', id: 'p-to-b', reverse: false },
+  { d: 'M 400 440 Q 520 280 640 200', id: 'b-to-r', reverse: false },
+  { d: 'M 640 200 Q 520 280 400 440', id: 'r-to-b', reverse: true },
+  { d: 'M 400 440 Q 280 280 160 200', id: 'b-to-p', reverse: true },
+];
+---
+
+<section
+  id="solution"
+  class="vf-container section"
+  aria-labelledby="solution-heading"
+>
+  <p class="vf-eyebrow">The pattern</p>
+  <h2 id="solution-heading" class="vf-heading-section mt-6 vf-text-balance max-w-4xl">
+    Three roles. One verifiable pipeline.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    The Skill Provider publishes a manifest. The Requester agrees to terms and sends
+    encrypted work. The Broker runs the attested enclave, returns the encrypted result,
+    and lets Stripe MPP release payment. The broker never sees plaintext.
+  </p>
+
+  <div class="mt-20 vf-card overflow-hidden">
+    <svg
+      viewBox="0 0 800 640"
+      class="w-full h-auto"
+      role="img"
+      aria-label="Three agents connected through an attested broker"
+    >
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#5fa39a"/>
+        </marker>
+        <linearGradient id="flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#b87333" stop-opacity="0"/>
+          <stop offset="50%" stop-color="#b87333" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#b87333" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Background grid — subtle, fern-pattern spacing -->
+      <g opacity="0.06">
+        {Array.from({ length: 16 }).map((_, i) => (
+          <line x1={i * 50} y1="0" x2={i * 50} y2="640" stroke="#2d6a4f" stroke-width="0.5"/>
+        ))}
+        {Array.from({ length: 13 }).map((_, i) => (
+          <line x1="0" y1={i * 50} x2="800" y2={i * 50} stroke="#2d6a4f" stroke-width="0.5"/>
+        ))}
+      </g>
+
+      <!-- Connection paths with animated flow -->
+      {paths.map((p) => (
+        <g>
+          <path
+            d={p.d}
+            fill="none"
+            stroke="#5fa39a"
+            stroke-width="1.5"
+            stroke-dasharray="4 4"
+            opacity="0.5"
+          />
+          <!-- Animated flow indicator — copper pulse along the path -->
+          <circle r="4" fill="#b87333" class="vf-flow-dot" data-path={p.id}>
+            <animateMotion
+              dur={`${p.reverse ? 5 : 4}s`}
+              repeatCount="indefinite"
+              begin={`${p.reverse ? 2 : 0}s`}
+              rotate="auto"
+            >
+              <mpath href={`#${p.id}`}/>
+            </animateMotion>
+          </circle>
+          {/* Hidden path used for mpath reference */}
+          <path id={p.id} d={p.d} fill="none" stroke="none"/>
+        </g>
+      ))}
+
+      <!-- Three nodes -->
+      {nodePositions.map((node) => (
+        <g transform={`translate(${node.cx}, ${node.cy})`}>
+          <!-- Outer ring (verdigris pulse on attested node) -->
+          {node.attested && (
+            <circle
+              r="58"
+              fill="none"
+              stroke="#2d6a4f"
+              stroke-width="1.5"
+              opacity="0.4"
+            >
+              <animate
+                attributeName="r"
+                values="55;75;55"
+                dur="3s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.6;0.1;0.6"
+                dur="3s"
+                repeatCount="indefinite"
+              />
+            </circle>
+          )}
+          <!-- Solid node -->
+          <circle
+            r="44"
+            fill={node.attested ? '#2d6a4f' : '#faf8f4'}
+            stroke={node.attested ? '#2d6a4f' : '#3b2e23'}
+            stroke-width={node.attested ? 0 : '1.5'}
+          />
+          <!-- Icon hint: small shape per role -->
+          {node.id === 'provider' && (
+            <text text-anchor="middle" dy="6" font-size="20" fill="#3b2e23" font-family="JetBrains Mono">
+              ⌘
+            </text>
+          )}
+          {node.id === 'requester' && (
+            <text text-anchor="middle" dy="6" font-size="20" fill="#3b2e23" font-family="JetBrains Mono">
+              ⌥
+            </text>
+          )}
+          {node.id === 'broker' && (
+            <text text-anchor="middle" dy="6" font-size="18" fill="#faf8f4" font-family="JetBrains Mono">
+              ◉
+            </text>
+          )}
+          <!-- Label -->
+          <text
+            text-anchor="middle"
+            y="80"
+            font-size="14"
+            font-weight="600"
+            fill="#1a1a17"
+            font-family="Inter"
+          >
+            {node.label}
+          </text>
+          <text
+            text-anchor="middle"
+            y="100"
+            font-size="11"
+            fill="#4a4a45"
+            font-family="Inter"
+          >
+            {node.role}
+          </text>
+          {node.attested && (
+            <text
+              text-anchor="middle"
+              y="-72"
+              font-size="9"
+              font-family="JetBrains Mono"
+              fill="#2d6a4f"
+              letter-spacing="2"
+            >
+              ATTESTED
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  </div>
+
+  <!-- Legend -->
+  <div class="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-body-sm text-ink-soft">
+    <div class="flex items-center gap-2">
+      <span class="w-3 h-3 rounded-full bg-copper"></span>
+      <span>Encrypted payload</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="w-3 h-3 rounded-full bg-verdigris-deep"></span>
+      <span>Attested enclave (SEV-SNP)</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="w-3 h-3 rounded-full border border-bark bg-bg"></span>
+      <span>Plaintext held by its owner only</span>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,95 @@
+---
+/**
+ * Footer — restrained, bark-toned, with the sponsor credits as text only.
+ * No logos (pending brand kit audit — see PROPOSAL.md §Open Decisions).
+ *
+ * The "Stands on" section names all four Stripe machine-payments rails that
+ * apply to VerdantForged, so sponsors see their primitives being used.
+ */
+
+const year = new Date().getFullYear();
+---
+
+<footer class="bg-bark text-bg/85 mt-section">
+  <div class="vf-container py-30">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-12">
+      <!-- Brand -->
+      <div class="md:col-span-5">
+        <div class="font-display text-display-sm font-semibold text-bg">
+          VerdantForged
+        </div>
+        <p class="mt-6 text-body-sm text-bg/70 max-w-md">
+          A sandbox marketplace for agents. Three agents, one attested enclave,
+          pay only for the seconds the sandbox was alive.
+        </p>
+        <p class="mt-8 text-caption text-bg/50 font-mono uppercase tracking-widest">
+          Open source · MIT
+        </p>
+      </div>
+
+      <!-- Stack credits (text only) -->
+      <div class="md:col-span-4">
+        <p class="vf-eyebrow text-bg/50">Stands on</p>
+        <ul class="mt-6 space-y-3 text-body-sm">
+          <li>
+            <span class="text-verdigris-deep">●</span>
+            <span class="ml-3">NVIDIA NemoClaw</span>
+            <span class="ml-2 text-bg/50 text-caption">SEV-SNP attestation</span>
+          </li>
+          <li>
+            <span class="text-copper">●</span>
+            <span class="ml-3">Stripe x402</span>
+            <span class="ml-2 text-bg/50 text-caption">Base USDC</span>
+          </li>
+          <li>
+            <span class="text-copper">●</span>
+            <span class="ml-3">Stripe MPP</span>
+            <span class="ml-2 text-bg/50 text-caption">Solana · Tempo · SPT</span>
+          </li>
+          <li>
+            <span class="text-verdigris">●</span>
+            <span class="ml-3">Nous Hermes</span>
+            <span class="ml-2 text-bg/50 text-caption">inference runtime</span>
+          </li>
+          <li>
+            <span class="text-moss">●</span>
+            <span class="ml-3">Hermes Agent</span>
+            <span class="ml-2 text-bg/50 text-caption">agent runtime</span>
+          </li>
+          <li>
+            <span class="text-bg/40">●</span>
+            <span class="ml-3">Nostr</span>
+            <span class="ml-2 text-bg/50 text-caption">discovery + reputation</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Links -->
+      <div class="md:col-span-3">
+        <p class="vf-eyebrow text-bg/50">Resources</p>
+        <ul class="mt-6 space-y-3 text-body-sm">
+          <li><a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
+          <li><a href="https://github.com/hermes-agent/verdantforged" class="text-bg/85 hover:text-copper transition-colors">Source code</a></li>
+          <li><a href="../tee-broker-docs/SPEC.md" class="text-bg/85 hover:text-copper transition-colors">Protocol spec</a></li>
+          <li><a href="../tee-broker-pattern/SECURITY_AUDIT.md" class="text-bg/85 hover:text-copper transition-colors">Security audit</a></li>
+          <li>
+            <button
+              type="button"
+              data-action="try-in-browser"
+              class="text-bg/85 hover:text-copper transition-colors text-left"
+            >
+              Try in browser
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-20 pt-10 border-t border-bg/15 flex flex-col sm:flex-row justify-between gap-4 text-caption text-bg/50">
+      <p>© {year} VerdantForged · Built by Autumn</p>
+      <p class="font-mono uppercase tracking-widest">
+        NVIDIA × Stripe × Nous Research · Hackathon 2026
+      </p>
+    </div>
+  </div>
+</footer>

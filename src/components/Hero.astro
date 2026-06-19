@@ -1,0 +1,99 @@
+---
+/**
+ * Hero — TYPE-DRIVEN (LOCKED 2026-06-19)
+ * Apple keynote cadence. No imagery. Words fade up sequentially.
+ * The hero says ONE thing: three agents, one enclave, your secrets stay yours.
+ */
+
+const lines = [
+  { text: 'Three agents.', emphasis: false },
+  { text: 'One attested enclave.', emphasis: false },
+  { text: 'Pay only for the sandbox you use.', emphasis: true },
+];
+---
+
+<section
+  class="relative min-h-screen flex flex-col justify-center px-6 sm:px-8 lg:px-12 py-30"
+  aria-label="VerdantForged — three agents, one attested enclave"
+>
+  <div class="max-w-wide mx-auto w-full">
+    <!-- Eyebrow -->
+    <p
+      class="vf-eyebrow vf-reveal"
+      data-reveal-delay="0"
+    >
+      A marketplace for agents
+    </p>
+
+    <!-- Type-driven headline, lines fade up sequentially -->
+    <h1 class="mt-8 max-w-5xl">
+      {lines.map((line, i) => (
+        <span
+          class={`vf-reveal block ${line.emphasis ? 'text-copper' : 'text-verdigris-deep'}`}
+          data-reveal-delay={String((i + 1) * 180)}
+          style={`transition-delay: ${(i + 1) * 180}ms;`}
+        >
+          {line.text}
+        </span>
+      ))}
+    </h1>
+
+    <!-- Subhead -->
+    <p
+      class="vf-body-lead mt-12 max-w-2xl vf-reveal"
+      data-reveal-delay="900"
+      style="transition-delay: 900ms;"
+    >
+      VerdantForged is a peer-to-peer marketplace where a Skill Provider publishes a sandbox configuration, a Requester pays to provision it, and an attested Environment Broker deploys and runs it inside an NVIDIA NemoClaw SEV-SNP enclave — using Nous inference as the runtime. Your skill stays your skill. Their data stays their data. You pay only for the seconds the sandbox was alive.
+    </p>
+
+    <!-- CTAs -->
+    <div
+      class="mt-16 flex flex-col sm:flex-row gap-4 vf-reveal"
+      data-reveal-delay="1100"
+      style="transition-delay: 1100ms;"
+    >
+      <a href="#how-it-works" class="vf-button">
+        See the protocol
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <button
+        type="button"
+        data-action="try-in-browser"
+        class="vf-button-ghost"
+      >
+        Try it in your browser
+      </button>
+      <a href="../tee-broker-docs/SPEC.md" class="vf-button-ghost">
+        Read the spec
+      </a>
+    </div>
+
+    <!-- Scroll affordance -->
+    <div
+      class="absolute bottom-12 left-1/2 -translate-x-1/2 vf-reveal"
+      data-reveal-delay="1500"
+      style="transition-delay: 1500ms;"
+      aria-hidden="true"
+    >
+      <div class="flex flex-col items-center gap-3 text-ink-soft">
+        <span class="vf-eyebrow">Scroll</span>
+        <div class="w-px h-12 bg-moss/60 animate-pulse-verdigris"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Reveal-on-load for the hero (no scroll needed since it's above the fold).
+  // For other sections, see scroll-reveal in BaseLayout or per-section scripts.
+  document.addEventListener('DOMContentLoaded', () => {
+    const els = document.querySelectorAll('.vf-reveal');
+    els.forEach((el) => {
+      const delay = parseInt((el as HTMLElement).dataset.revealDelay ?? '0', 10);
+      setTimeout(() => el.classList.add('is-visible'), delay);
+    });
+  });
+</script>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Copper-toned VerdantForged favicon — simple geometric leaf + ring -->
+  <circle cx="16" cy="16" r="14" fill="#faf8f4" stroke="#b87333" stroke-width="2"/>
+  <path d="M 16 8 Q 22 14 16 22 Q 10 14 16 8 Z" fill="#2d6a4f"/>
+  <path d="M 16 8 L 16 22" stroke="#5fa39a" stroke-width="1"/>
+</svg>

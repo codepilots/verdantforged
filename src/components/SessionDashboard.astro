@@ -1,0 +1,229 @@
+---
+/**
+ * SessionDashboard — the user-facing view of an active VerdantForged session.
+ *
+ * Sits above the chat. Renders ONE VerdantForged escrow as a single tile
+ * with countdown, cost breakdown, and three affordances.
+ *
+ * Two states:
+ *   - idle:    "No active session" + a button to provision one
+ *   - active:  countdown clock, spent amount, progress meter, three affordances
+ *
+ * State + tick logic is shared with BrowserAgentSplash — see src/lib/session-dashboard.ts.
+ */
+
+interface Props {
+  /** Override the demo budget (USD). Default: 0.50 */
+  maxBudgetUsd?: number;
+}
+
+const { maxBudgetUsd = 0.50 } = Astro.props;
+
+// Stable session id for this demo (matches the prior mock snapshot's prefix).
+const sessionShort = 'sess_7f3a91c4b9c2';
+---
+
+<section
+  id="dashboard"
+  class="vf-container section"
+  aria-labelledby="dashboard-heading"
+>
+  <p class="vf-eyebrow">What the requester sees</p>
+  <h2 id="dashboard-heading" class="vf-heading-section mt-6 max-w-4xl">
+    One tab. One sandbox. One timer.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    Open a sandbox and the local LLM runs your session. Every skill call, every second of enclave compute, every byte of Nous inference flows through <em>one</em> VerdantForged escrow — and shows up on one dashboard. When the timer runs out, the sandbox burns down and Stripe MPP refunds the unused balance.
+  </p>
+
+  <!-- The tile -->
+  <div class="mt-16 max-w-4xl mx-auto">
+    <article
+      id="vf-dashboard"
+      class="vf-card relative"
+      aria-label="VerdantForged session dashboard"
+      data-session-active="false"
+    >
+      <!-- Idle state: shown until user clicks "Open sandbox" -->
+      <div id="vf-dashboard-idle" class="flex flex-col items-center justify-center py-12 text-center">
+        <code class="font-mono text-caption text-ink-soft uppercase tracking-widest">
+          No active session
+        </code>
+        <p class="mt-3 text-body text-ink max-w-prose-vf">
+          Click below to provision a <code class="text-copper">python-3.11-base</code> enclave and watch the escrow cover every skill call and every second of compute.
+        </p>
+        <button
+          type="button"
+          data-action="vf-dashboard-open-session"
+          class="vf-button mt-6"
+        >
+          Open sandbox
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Active state: hidden until user opens a session -->
+      <div id="vf-dashboard-active" class="hidden">
+        <!-- Header strip -->
+        <header class="flex items-start justify-between gap-4">
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center gap-2 px-3 py-1 bg-verdigris-deep/10 border border-verdigris-deep/30 rounded-full text-caption font-mono text-verdigris-deep uppercase tracking-widest">
+                <span class="w-1.5 h-1.5 rounded-full bg-verdigris animate-pulse-verdigris"></span>
+                Active
+              </span>
+              <code class="text-caption text-ink-soft font-mono">{sessionShort.slice(0, 12)}…</code>
+            </div>
+            <h3 class="text-display-sm font-display font-semibold text-ink mt-1">
+              <code class="text-copper">python-3.11-base</code>
+              <span class="text-ink-soft font-normal text-body-sm ml-2">· attested SEV-SNP</span>
+            </h3>
+          </div>
+          <span class="vf-eyebrow text-ink-soft">Session</span>
+        </header>
+
+        <!-- Countdown + meter -->
+        <div class="mt-10">
+          <div class="flex items-baseline justify-between">
+            <div>
+              <p class="vf-eyebrow text-ink-soft">Time remaining</p>
+              <p
+                class="mt-2 font-display font-semibold text-ink text-display-md tabular-nums"
+                data-role="clock"
+              >
+                5:00
+              </p>
+            </div>
+            <div class="text-right">
+              <p class="vf-eyebrow text-ink-soft">Elapsed</p>
+              <p class="mt-2 font-mono text-body text-ink-soft tabular-nums" data-role="elapsed">
+                0:00
+              </p>
+            </div>
+          </div>
+
+          <!-- Horizontal meter — copper fill on moss track -->
+          <div
+            class="mt-4 h-2 bg-moss/20 rounded-full overflow-hidden"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-label="Budget used"
+          >
+            <div
+              class="h-full bg-copper transition-[width] duration-700"
+              style="width: 0%"
+              data-role="budget-fill"
+            ></div>
+          </div>
+        </div>
+
+        <!-- Cost breakdown -->
+        <dl class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6 border-t border-moss/30 pt-8">
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Broker compute</dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="broker-cost">
+              $0.0000
+            </dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Skill calls <span class="font-mono" data-role="call-count">(0)</span></dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="skill-cost">
+              $0.0000
+            </dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Nous inference</dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="llm-cost">
+              $0.0000
+            </dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Total spent</dt>
+            <dd class="mt-2 font-mono text-body text-copper-deep font-semibold tabular-nums" data-role="total">
+              $0.0000
+            </dd>
+          </div>
+        </dl>
+
+        <!-- Budget envelope -->
+        <div class="mt-8 flex items-center justify-between text-caption font-mono text-ink-soft border-t border-moss/30 pt-6">
+          <span>Budget envelope: <span class="text-ink">${maxBudgetUsd.toFixed(4)}</span></span>
+          <span>Refund on close: <span class="text-verdigris-deep">${maxBudgetUsd.toFixed(4)}</span></span>
+        </div>
+
+        <!-- Three affordances -->
+        <div class="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            data-action="vf-dashboard-skill-call"
+            class="vf-button justify-center"
+          >
+            Make skill call
+          </button>
+          <button
+            type="button"
+            data-action="vf-dashboard-extend"
+            class="vf-button-ghost justify-center"
+          >
+            Extend (+2:00)
+          </button>
+          <button
+            type="button"
+            data-action="vf-dashboard-close"
+            class="vf-button-ghost justify-center"
+          >
+            Close session
+          </button>
+        </div>
+
+        <!-- Compact call log -->
+        <div
+          class="mt-8 border-t border-moss/30 pt-6 space-y-2 text-caption font-mono"
+          data-role="log"
+        >
+          <p class="text-ink-soft">No skill calls yet.</p>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <!-- Footnote -->
+  <p class="mt-10 max-w-2xl mx-auto text-center text-caption text-ink-soft font-mono">
+    The dashboard is the same UI Hermes Agent renders for itself. The local LLM decides when to escalate — it does not see your Stripe API key.
+  </p>
+</section>
+
+<script>
+  import { createDashboard } from '~/lib/session-dashboard';
+
+  // Create the landing-page dashboard. Wire it up immediately so visitors see
+  // the interactive demo without needing to click "Try it in your browser" first.
+  const dash = createDashboard({
+    rootId: 'vf-dashboard',
+    maxBudgetUsd: 0.50,
+    costPerMin: 0.0133,
+    skillCostUsd: 0.0050,
+    leaseSeconds: 300,    // 5-min demo
+    extendSeconds: 120,   // +2 min per extend
+    sessionShort: 'sess_7f3a91c4b9c2',
+    environment: 'python-3.11-base',
+  });
+
+  // Update the call-count pill + refund row dynamically. Polling at 250ms
+  // is fine for a single dashboard tile; if many dashboards existed on one
+  // page we'd switch to a render hook.
+  const countEl = document.querySelector('[data-role="call-count"]');
+  setInterval(() => {
+    const snap = dash.getSnapshot();
+    if (countEl) countEl.textContent = `(${snap.callCount})`;
+    const refundEl = document.querySelector('#vf-dashboard .text-verdigris-deep');
+    if (refundEl && snap.active) {
+      const refund = Math.max(0, 0.50 - snap.totalUsd);
+      refundEl.textContent = `$${refund.toFixed(4)}`;
+    }
+  }, 250);
+</script>

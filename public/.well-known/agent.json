@@ -1,0 +1,52 @@
+{
+  "$schema": "https://agent-discovery.org/v0.1/agent.schema.json",
+  "name": "VerdantForged",
+  "description": "A broker-supported agent marketplace where three agents (Skill Provider, Requester, Environment Broker) collaborate via attested enclave execution. Built on NVIDIA NemoClaw SEV-SNP, Stripe MPP, and Hermes Agent.",
+  "version": "0.1.0",
+  "type": "marketplace_protocol",
+  "license": "MIT",
+  "homepage": "https://verdantforged.pages.dev",
+  "agent_instructions": {
+    "url": "https://verdantforged.pages.dev/AGENT.md",
+    "format": "markdown",
+    "alt_urls": [
+      "https://verdantforged.pages.dev/.Agent.md"
+    ]
+  },
+  "capabilities": {
+    "skill_install": true,
+    "protocol_verification": true,
+    "secure_execution": true,
+    "escrowed_payment": true
+  },
+  "sponsors": [
+    {
+      "name": "NVIDIA",
+      "role": "infrastructure",
+      "technology": "NemoClaw SEV-SNP enclaves"
+    },
+    {
+      "name": "Stripe",
+      "role": "payments",
+      "technology": "Managed Payment Platform (MPP)"
+    },
+    {
+      "name": "Nous Research",
+      "role": "agent_runtime",
+      "technology": "Hermes Agent"
+    }
+  ],
+  "findability": {
+    "tags": ["tee", "attestation", "agent-marketplace", "peer-to-peer", "mpp-escrow", "wasm-skills"],
+    "categories": ["marketplace", "infrastructure", "security"]
+  },
+  "contact": {
+    "type": "repository",
+    "url": "https://github.com/hermes-agent/verdantforged"
+  },
+  "_meta": {
+    "created": "2026-06-19",
+    "hackathon": "NVIDIA × Stripe × Nous Research — Hermes Agent Accelerated Business Hackathon",
+    "deadline": "2026-06-30"
+  }
+}
