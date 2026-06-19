@@ -1,32 +1,26 @@
 ---
 /**
- * /agent — full-page Hermes-pyodide runner
+ * /agent — Hermes Portable full-page runner (v3)
  *
- * This replaces the BrowserAgentSplash modal. Reaches here by clicking
- * "Try it in your browser" anywhere on the site. The page is a full
- * takeover (no parent chrome, no fixed overlay) so:
- *
+ * The page is a full takeover (no parent chrome, no fixed overlay) so:
  *   - No clipping on narrow viewports
- *   - Native page scroll on the dashboard log when entries exceed viewport
+ *   - Native page scroll on the chat history when entries exceed viewport
  *   - Browser handles history (back button returns to home)
  *   - No layout interaction with the parent page's sticky elements
  *
- * Pipeline (lazy, one-time per visit):
- *   1. Open page → no work
- *   2. User clicks "Boot Hermes Agent" → loads Pyodide (~20MB) +
- *      BOOTSTRAP_PY explainer skill
- *   3. User clicks "Open sandbox" + "Make skill call" or types a
- *      prompt → real Python skill invocations
+ * Hermes Portable boots itself — no button press. WebLLM warms on first
+ * user activity, Pyodide warms on chat-input focus. The broker session
+ * is opened by the agent itself when it decides a real skill is needed.
  *
- * Pyodide singleton is per-tab; closing the tab releases everything.
+ * The actual layout lives in AgentRunner.astro (banner → chat → input).
  */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import AgentRunner from '~/components/AgentRunner.astro';
 ---
 
 <BaseLayout
-  title="VerdantForged · Try Hermes Agent in your browser"
-  description="A full Pyodide-backed Hermes Agent skill runner. Ask anything about the VerdantForged protocol; the agent reads AGENT.md and answers in real time."
+  title="VerdantForged · Hermes Portable"
+  description="Hermes Portable running in your browser. Real inference via WebLLM, real skills via Pyodide, broker sessions opened by the agent on demand."
 >
   <AgentRunner />
 </BaseLayout>
