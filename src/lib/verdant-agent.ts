@@ -26,6 +26,39 @@
 const PYODIDE_VERSION = 'v0.27.7';
 const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`;
 
+/**
+ * Derive the project's base URL from the page's script tags.
+ *
+ * Astro emits <script type="module" src="/_astro/foo.js"> for client-side
+ * bundles. If base='/verdantforged' is configured, the script src becomes
+ * '/verdantforged/_astro/foo.js'. We extract the prefix and use it for
+ * fetching AGENT.md and other project-root files.
+ *
+ * Works for both:
+ *   - GitHub Pages at /verdantforged/  → returns '/verdantforged/'
+ *   - Cloudflare Pages at /            → returns '/'
+ */
+function resolveBaseUrl(): string {
+  // First try: any script with /_astro/ in its src tells us the base.
+  const astroScript = document.querySelector<HTMLScriptElement>(
+    'script[src*="/_astro/"]',
+  );
+  if (astroScript?.src) {
+    try {
+      const u = new URL(astroScript.src, location.href);
+      const idx = u.pathname.indexOf('/_astro/');
+      if (idx >= 0) return u.pathname.slice(0, idx + 1);  // keep trailing slash
+    } catch {
+      // fall through
+    }
+  }
+  // Fallback: location.pathname minus the index.html filename
+  const p = location.pathname;
+  const lastSlash = p.lastIndexOf('/');
+  if (lastSlash > 0) return p.slice(0, lastSlash + 1);
+  return '/';
+}
+
 // Singleton state on window. Survives across multiple createDashboard()
 // calls on the same page (landing-page tile + splash tile share).
 declare global {
@@ -84,7 +117,11 @@ export async function loadVerdantAgent(opts?: {
       // portable_hermes/verdantforged_explainer.py from the spike — only
       // the summarize_section entry point. Full skill catalog registers
       // 7 skills; we ship 1 for the demo to keep the bundle ~20KB.
-      const baseUrl = (import.meta as any).env?.BASE_URL ?? '/';
+      // Resolve AGENT.md relative to where this module's <script> was
+      // loaded from. import.meta.env.BASE_URL is build-time only and
+      // not visible at runtime in the browser, so we sniff
+      // document.currentScript or derive from location.pathname.
+      const baseUrl = resolveBaseUrl();
       const agentMdUrl = opts?.agentMdUrl ?? `${baseUrl}AGENT.md`;
 
       await pyodide.runPythonAsync(BOOTSTRAP_PY);
