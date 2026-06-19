@@ -148,8 +148,12 @@ function parseCallColonParams(params: string): Record<string, unknown> {
 
 function buildRegex(options: ParseJsonFunctionCallsOptions): RegExp {
   const patterns: string[] = [];
-  // Always support markdown fences (our preferred format).
+  // Always support markdown fences with the tool_call label.
   patterns.push('```tool[_\\-]?call\\s*([\\s\\S]*?)```');
+  // Some models (Phi, Qwen) emit a plain ```json fence with a tool-
+  // call object inside. We accept that too — the inner JSON parser
+  // will check whether the result looks like a tool call.
+  patterns.push('```(?:json|javascript|js)?\\s*(\\{[\\s\\S]*?"name"\\s*:[\\s\\S]*?\\})\\s*```');
   if (options.supportXmlTags) {
     patterns.push('<tool_call>\\s*([\\s\\S]*?)\\s*</tool_call>');
   }
@@ -177,10 +181,6 @@ export function parseJsonFunctionCalls(
   const regex = buildRegex(mergedOptions);
   const matches = Array.from(response.matchAll(regex));
   regex.lastIndex = 0;
-
-  if (matches.length === 0) {
-    return { toolCalls: [], textContent: response };
-  }
 
   const toolCalls: ParsedToolCall[] = [];
   let textContent = response;
@@ -292,8 +292,84 @@ export function parseJsonFunctionCalls(
     }
   }
 
+  // ── Fallback scan ──────────────────────────────────────────────
+  // If the strict regex didn't match anything (e.g. Phi emitted a
+  // tool call in plain prose with a JSON object embedded, or
+  // used a ` ```json ` fence instead of ` ```tool_call `), scan
+  // the whole response for JSON-shaped tool-call objects.
+  if (toolCalls.length === 0) {
+    const fallback = scanForToolCallObjects(response, mergedOptions.supportParametersField ?? true);
+    if (fallback) {
+      toolCalls.push(fallback);
+      // Remove the matched JSON from textContent for a clean display.
+      const idx = textContent.indexOf(fallback.toolName);
+      if (idx >= 0) {
+        // Best-effort strip of the JSON object containing the tool call.
+        const re = new RegExp(
+          `\\{[^{}]*"name"\\s*:\\s*"?${escapeRegex(fallback.toolName)}"?[^{}]*\\}`,
+          's',
+        );
+        textContent = textContent.replace(re, '').trim();
+      }
+    }
+  }
+
   textContent = textContent.replace(/\n{2,}/g, '\n');
   return { toolCalls, textContent: textContent.trim() };
+}
+
+/**
+ * Last-resort scan: find a JSON object with `name` (and either
+ * `arguments` or `parameters`) anywhere in the response text.
+ * Returns null if nothing tool-call-shaped is found.
+ */
+function scanForToolCallObjects(
+  response: string,
+  supportParametersField: boolean | undefined,
+): ParsedToolCall | null {
+  // Walk through the string looking for balanced {...} objects.
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < response.length; i++) {
+    const ch = response[i];
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = response.slice(start, i + 1);
+        try {
+          const parsed = JSON.parse(candidate);
+          if (parsed && typeof parsed === 'object' && typeof parsed.name === 'string') {
+            const hasArgs = parsed.arguments !== undefined ||
+              (supportParametersField && parsed.parameters !== undefined);
+            if (hasArgs) {
+              let args = parsed.arguments ||
+                (supportParametersField ? parsed.parameters : null) || {};
+              if (typeof args === 'string') {
+                try { args = JSON.parse(args); } catch { /* keep as string */ }
+              }
+              return {
+                type: 'tool-call',
+                toolCallId: parsed.id || generateToolCallId(),
+                toolName: parsed.name,
+                args: args as Record<string, unknown>,
+              };
+            }
+          }
+        } catch {
+          // not valid JSON at this depth, keep scanning
+        }
+        start = -1;
+      }
+    }
+  }
+  return null;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ─── system prompt builder ─────────────────────────────────────────
@@ -323,31 +399,47 @@ export function buildJsonToolSystemPrompt(
   }));
   const toolsJson = JSON.stringify(toolSchemas, null, 2);
 
-  const instructionBody = `You are a helpful AI assistant with access to tools.
+  const instructionBody = `# Tool / Function Calling Protocol
 
-# Available Tools
-${toolsJson}
+You have access to the following tools. To use one, output a single tool-call object
+inside a fenced code block whose label is exactly "tool_call" (NOT "json").
 
-# Tool Calling Instructions
-${parallelInstruction}
-
-To call a tool, output JSON in this exact format inside a \`\`\`tool_call code fence:
+## Output format (REQUIRED, copy this exactly)
 
 \`\`\`tool_call
-{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
+{"name": "<tool_name_from_schema_below>", "arguments": {"<param>": "<value>"}}
 \`\`\`
 
-Tool responses will be provided in \`\`\`tool_result fences. Each line contains JSON like:
-\`\`\`tool_result
-{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
-\`\`\`
-Use the \`result\` payload (and treat \`error\` as a boolean flag) when continuing the conversation.
+## Rules
 
-Important:
-- Use exact tool and parameter names from the schema above
-- Arguments must be a valid JSON object matching the tool's parameters
-- You can include brief reasoning before or after the tool call
-- If no tool is needed, respond directly without tool_call fences`;
+- The fence label MUST be exactly "tool_call" (three backticks, then "tool_call").
+- Inside the fence, output ONLY the JSON object. No prose, no comments, no markdown.
+- Use the exact "name" string from the schema below — case-sensitive.
+- "arguments" is always a JSON object (use {} if there are no parameters).
+- Output AT MOST ONE tool call per response. Wait for the result before calling again.
+- After the fence, you may write a brief sentence acknowledging the action.
+- If no tool is needed (a simple chat question), respond in plain prose without
+  any tool_call fence.
+
+## Available tools
+
+${toolsJson}
+
+## Example: opening a broker session
+
+User: "Run some Python for me."
+
+Assistant:
+\`\`\`tool_call
+{"name": "broker_session", "arguments": {"action": "open", "env": "python-3.11-base"}}
+\`\`\`
+
+## Example: answering a docs question (no tool needed)
+
+User: "What's the enclave attestation check?"
+
+Assistant: The enclave attestation check verifies the SEV-SNP measurement against
+the manifest hash before decrypting any user data...`;
 
   if (originalSystemPrompt?.trim()) {
     return `${originalSystemPrompt.trim()}\n\n${instructionBody}`;
