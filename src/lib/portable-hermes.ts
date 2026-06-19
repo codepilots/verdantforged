@@ -162,12 +162,55 @@ export class PortableHermesHandle {
     );
     const tools = JSON.parse(String(toolsJson));
 
-    const reply = await engine.chat.completions.create({
-      messages: fullHistory as any,
-      tools: tools as any,
-      temperature: 0.7,
-      max_tokens: opts?.maxTokens ?? 256,
-    });
+    // WebLLM 0.2.78's `chatCompletion` calls `xg(message, false)` to parse
+    // the model's text as a raw JSON array of {name, arguments} tool calls.
+    // This is a non-standard format that no model in WebLLM's catalog
+    // actually emits — the Hermes-3 model returns plain text (or OpenAI
+    // `` markers, which WebLLM 0.2.78 does not understand).
+    // Result: as soon as tools are present AND the model returns any text
+    // that isn't valid JSON, WebLLM throws
+    //   "Internal error: error encountered when parsing outputMessage for
+    //    function calling. Got outputMessage: ... SyntaxError: Unexpected
+    //    token 'H' ... is not valid JSON"
+    // We catch that and degrade gracefully: surface the model's text as
+    // a normal message, no tool call extracted. The Pyodide mock LLM
+    // remains the deterministic fallback for agent behaviour; the real
+    // LLM path is now plain chat.
+    let reply: any;
+    try {
+      reply = await engine.chat.completions.create({
+        messages: fullHistory as any,
+        tools: tools as any,
+        temperature: 0.7,
+        max_tokens: opts?.maxTokens ?? 256,
+      });
+    } catch (llmErr) {
+      // WebLLM's JSON.parse-the-whole-output parser choked on the
+      // model's text. Fall back to plain chat (no tools) so the user
+      // still gets a response. Surface the model output as best we can
+      // by re-running WITHOUT tools — then WebLLM returns the raw text.
+      const msg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+      const isToolParseError =
+        msg.includes('error encountered when parsing outputMessage') ||
+        msg.includes('is not valid JSON') ||
+        msg.includes('Function call output message');
+      if (!isToolParseError) {
+        // Some other WebLLM error — re-throw so the caller can show it.
+        throw llmErr;
+      }
+      console.warn(
+        '[portable-hermes] WebLLM tool-call parser failed; falling back ' +
+        'to plain chat (no tools) for this turn.',
+        llmErr,
+      );
+      // Retry without tools so WebLLM's `_generate` returns the raw
+      // text instead of trying to parse it as a tool call.
+      reply = await engine.chat.completions.create({
+        messages: fullHistory as any,
+        temperature: 0.7,
+        max_tokens: opts?.maxTokens ?? 256,
+      });
+    }
 
     const choice = reply.choices[0];
     const msg = choice.message;
