@@ -536,6 +536,17 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
         setPanelStatus('nvidia', 'done', 'enclave burned');
         setPanelStatus('nous', 'done', 'plan executed');
         setPanelStatus('stripe', 'done', 'settled');
+        // Update Stripe panel body with totals + refund id
+        const refundLine = e.refund_id
+          ? `<p class="text-caption text-verdigris-deep">refund ${escapeHtml(e.refund_id)}</p>`
+          : `<p class="text-caption text-ink-soft">no refund needed (estimate = actual)</p>`;
+        setPanelBody('stripe', `
+          <p class="text-ink-soft"><span class="text-ink-50">settled</span></p>
+          <p class="text-caption"><span class="text-ink-50">actual</span> ${fmtMoney(e.totals.actual_cost_usd)}</p>
+          <p class="text-caption"><span class="text-ink-50">broker app_fee</span> ${fmtMoney(e.totals.broker_retained_usd)}</p>
+          <p class="text-caption"><span class="text-ink-50">providers paid</span> ${fmtMoney(e.totals.skill_provider_paid_usd)}</p>
+          ${refundLine}
+        `);
         if (receiptsSection) receiptsSection.classList.remove('hidden');
         if (receiptsSummary) {
           const t = e.totals;
