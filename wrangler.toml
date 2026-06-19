@@ -1,0 +1,24 @@
+# Wrangler config — Cloudflare Pages deploy for VerdantForged marketing site
+# Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+#
+# Deploy with:
+#   npx wrangler pages deploy dist --project-name verdantforged
+#
+# Authenticate first (one-time):
+#   npx wrangler login            (interactive OAuth)
+#   # OR set CLOUDFLARE_API_TOKEN env var (https://dash.cloudflare.com/profile/api-tokens)
+#       required permissions: Cloudflare Pages: Edit
+
+name = "verdantforged"
+compatibility_date = "2026-06-19"
+pages_build_output_dir = "./dist"
+
+# Production branch → verdantforged.pages.dev
+# Preview branches → <branch>.verdantforged.pages.dev
+
+# [vars] for non-secret env vars (none currently)
+# [[kv_namespaces]] / [[d1_databases]] / [r2_buckets] for binding Cloudflare storage
+# (none — this is a static site, all state is client-side)
+
+# Custom domain (after registering verdantforged.com through Cloudflare Registrar):
+# Add to `pages.dev` project → Custom domains → verdantforged.com

@@ -1,0 +1,54 @@
+# GitHub Actions — Build + Deploy to Cloudflare Pages
+# Triggers: push to main (production), pull_request (preview)
+# Required secret: CLOUDFLARE_API_TOKEN (set in repo Settings → Secrets → Actions)
+#   Required permission on the token: "Cloudflare Pages: Edit"
+
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build site
+        run: npm run build
+        env:
+          # No secrets required for build (static site, no API keys)
+          NODE_ENV: production
+
+      - name: Deploy to Cloudflare Pages
+        if: github.event_name == 'push'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: verdantforged
+          directory: dist
+          # gitHubToken: ${{ secrets.GITHUB_TOKEN }}  # uncomment for PR comments with deploy URL
+
+      - name: Deploy preview
+        if: github.event_name == 'pull_request'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: verdantforged
+          directory: dist
+        # PR comments require additional setup; preview URL is logged in action output

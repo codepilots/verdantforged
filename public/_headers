@@ -1,0 +1,26 @@
+# Cloudflare Pages headers — see https://developers.cloudflare.com/pages/configuration/headers/
+# Path-scoped overrides for static assets
+
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Static assets — long cache, immutable
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Agent-discoverable files — short cache, allow re-validation
+/.well-known/agent.json
+  Cache-Control: public, max-age=300, must-revalidate
+  Content-Type: application/json
+
+/AGENT.md
+/.Agent.md
+  Cache-Control: public, max-age=600, must-revalidate
+  Content-Type: text/markdown; charset=utf-8
+
+# Demo cast (asciinema) — short cache so updates ship quickly
+/demo.cast
+  Cache-Control: public, max-age=60
