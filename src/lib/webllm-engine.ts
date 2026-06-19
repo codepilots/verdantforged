@@ -1,37 +1,123 @@
 /**
  * webllm-engine.ts — singleton WebLLM loader for in-browser LLM inference.
  *
- * Hermes Portable uses WebLLM (MLC-AI) with Hermes-3-Llama-3.1-8B as the
- * runtime model. The engine is loaded lazily on the first user activity
- * (mouse/key/scroll/touch) so the ~4.5GB model download doesn't block the
- * landing page render.
+ * Hermes Portable uses WebLLM (MLC-AI) with Phi-3.5-mini as the
+ * default runtime model. The engine is loaded lazily on the first
+ * user activity (mouse/key/scroll/touch) so the ~2GB model download
+ * doesn't block the landing page render.
  *
- * We need tool/function-calling support because the agent must invoke the
- * broker_session skill (open/extend/close) on user prompts. Phi-3.5-mini
- * does NOT support ChatCompletionRequest.tools in WebLLM 0.2.78 — only
- * the Hermes-2-Pro and Hermes-3 families do. Hermes-3-Llama-3.1-8B-q4f16_1
- * is the smallest tool-capable model in the catalog (~4.5GB weights),
- * and is the auto-selected default. If the preferred model fails to load
- * we automatically retry with the first entry in
- * `webllm.functionCallingModelIds`, so the engine is self-healing across
- * WebLLM version bumps.
+ * We default to Phi-3.5 because Hermes-3-Llama-3.1-8B (~4.5GB) is
+ * too heavy for many laptop GPUs — verified to fail with
+ * `GPUDeviceLostInfo` on consumer hardware (2026-06-19). Phi-3.5
+ * gives a working chat experience on 4-6GB VRAM GPUs. It is chat-
+ * only in WebLLM 0.2.78, so tool calling is disabled by default;
+ * the Pyodide `summarize` skill still works as the deterministic
+ * skill-execution path. Users with a beefy GPU can opt into the
+ * tool-capping Hermes-3 model with `?model=hermes-3` on the URL.
  *
- * After load, every call returns the same engine instance. The model is
- * cached in the browser's Cache Storage so subsequent visits skip the
- * network download.
+ * The available aliases (in `MODEL_ALIASES`):
+ *   - `phi-3.5`  — default. Chat-only, 2GB, works on most laptops.
+ *   - `hermes-3` — tool-capping, 4.5GB, requires beefy GPU.
+ *   - `hermes-2` — tool-capping, ~4.5GB, older Hermes-2-Pro.
+ *   - `qwen-3b`  — chat-only, 2.3GB, good fallback for non-English.
+ *   - `llama-3b` — chat-only, 2.3GB, Meta's reference model.
+ *   - `tinyllama`— chat-only, 675MB, fastest "first impression".
  *
- * Failures are non-fatal: callers check `state()` and can fall back to a
- * mock LLM (the existing Pyodide explainer) if WebLLM is unavailable
- * (no WebGPU, no WASM, model download failed).
+ * After load, every call returns the same engine instance. The model
+ * is cached in the browser's Cache Storage so subsequent visits skip
+ * the network download.
+ *
+ * Failures are non-fatal: callers check `state()` and can fall back
+ * to a mock LLM (the Pyodide `summarize` skill) if WebLLM is
+ * unavailable (no WebGPU, no WASM, model download failed, GPU OOM).
  */
 
 const WEBLLM_VERSION = '0.2.78';  // pinned to the verified spike version
 const WEBLLM_CDN = `https://esm.run/@mlc-ai/web-llm@${WEBLLM_VERSION}`;
 
-// Hermes-3-Llama-3.1-8B, q4f16_1 quantisation, ~4.5GB weights.
-// Tool-capable: supports ChatCompletionRequest.tools (Phi-3.5-mini does
-// not — see WebLLM 0.2.78's functionCallingModelIds).
-export const PORTABLE_MODEL_ID = 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC';
+// Default: Phi-3.5-mini (2GB, chat-only). Most laptop GPUs can run
+// this. Hermes-3 is opt-in via ?model=hermes-3.
+export const PORTABLE_MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
+
+/**
+ * Catalogue of selectable model aliases. The `?model=...` URL
+ * parameter on the page picks one of these. The default alias
+ * (returned when no `?model=` is set) is `phi-3.5` — see
+ * `PORTABLE_MODEL_ID` above for why.
+ *
+ * Notes on capability tiers:
+ *   - Tool-capping (Hermes-2-Pro, Hermes-3): the agent can emit
+ *     ```tool_call``` fences that the json-tool-parser turns into
+ *     broker_session / summarize / list_skills calls.
+ *   - Chat-only (Phi, Qwen, Llama, TinyLlama): the agent still gets
+ *     real LLM responses, but no auto tool calling. The Pyodide
+ *     mock LLM (`summarize`) is the deterministic skill path.
+ */
+export const MODEL_ALIASES: Record<string, string> = {
+  'phi-3.5': 'Phi-3.5-mini-instruct-q4f16_1-MLC',      // default, chat-only, 2GB
+  'hermes-3': 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC',     // tool-capping, 4.5GB
+  'hermes-2': 'Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC',   // tool-capping, older
+  'qwen-3b': 'Qwen2.5-3B-Instruct-q4f16_1-MLC',        // chat-only, 2.3GB
+  'llama-3b': 'Llama-3.2-3B-Instruct-q4f16_1-MLC',     // chat-only, 2.3GB
+  'tinyllama': 'TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC-1k',  // chat-only, 675MB
+};
+
+export const DEFAULT_MODEL_ALIAS = 'phi-3.5';
+
+/**
+ * Resolve the model id from a URL query parameter, falling back to
+ * the default. Returns both the model id and a tag for telemetry.
+ */
+export function resolveModelFromUrl(search: string = location.search): {
+  alias: string;
+  modelId: string;
+} {
+  const params = new URLSearchParams(search);
+  const raw = (params.get('model') || '').toLowerCase().trim();
+  if (!raw) {
+    return { alias: 'hermes-3', modelId: PORTABLE_MODEL_ID };
+  }
+  const resolved = MODEL_ALIASES[raw];
+  if (resolved) {
+    return { alias: raw, modelId: resolved };
+  }
+  // Allow passing the full catalog id directly.
+  if (raw.endsWith('-MLC')) {
+    return { alias: raw, modelId: raw };
+  }
+  // Unknown — fall back to default with a warning.
+  console.warn(`[webllm-engine] unknown model alias "${raw}", using default`);
+  return { alias: 'hermes-3', modelId: PORTABLE_MODEL_ID };
+}
+
+/**
+ * Recognise WebLLM/GPU failure patterns that mean the device is
+ * toast (lost, out of memory, instance dropped). Used to switch
+ * the engine to fallback mode and surface a friendly error.
+ */
+export function isDeviceLostError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('device was lost') ||
+    lower.includes('gpudevicelost') ||
+    lower.includes('instance dropped') ||
+    lower.includes('valid external instance reference') ||
+    lower.includes('out of memory') ||
+    lower.includes('memory') && lower.includes('resource') ||
+    lower.includes('insufficient memory') ||
+    lower.includes('gpu device has been lost') ||
+    lower.includes('mapasync')  // GPUBuffer.mapAsync fails after device loss
+  );
+}
+
+/**
+ * Whether a model id is one of the tool-capable ones in WebLLM 0.2.78.
+ * Used to label the UI ("tool-calling on" vs "chat only").
+ */
+export function isToolCapableModel(modelId: string): boolean {
+  return /Hermes-(2-Pro|3-Llama)/.test(modelId);
+}
 
 declare global {
   interface Window {
@@ -84,12 +170,14 @@ export function getEngineState(): EngineState {
  * to the Pyodide explainer fallback.
  */
 export async function loadWebLLM(opts?: {
-  /** Override the model id. Default: Hermes-3-Llama-3.1-8B-q4f16_1-MLC. */
+  /** Override the model id. Default: from URL `?model=...` or Hermes-3. */
   model?: string;
   /** Optional progress callback (0..1). */
   onProgress?: (p: number) => void;
 }): Promise<any> {
-  const modelId = opts?.model ?? PORTABLE_MODEL_ID;
+  // Resolve the model from URL or explicit override.
+  const { modelId: defaultId } = resolveModelFromUrl();
+  const modelId = opts?.model ?? defaultId;
 
   if (window.__vfWebLLM) {
     await window.__vfWebLLM;
@@ -193,7 +281,21 @@ export async function loadWebLLM(opts?: {
     throw lastError ?? new Error('No candidate models available');
   })().catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);
-    setState({ status: 'error', error: msg });
+    // Detect GPU device-lost / out-of-memory patterns and surface a
+    // friendlier error pointing the user at the URL-param fallback.
+    // This is the most common failure in low-VRAM environments and the
+    // raw WebLLM error message ("Device was lost. ... please try to
+    // reload WebLLM with a less resource-intensive model") is
+    // technically correct but doesn't tell the user HOW to fix it.
+    if (isDeviceLostError(err)) {
+      const friendly =
+        'GPU ran out of memory. Append `?model=phi-3.5` or `?model=tinyllama` ' +
+        'to this URL for a smaller model. Falling back to the Python mock LLM.';
+      setState({ status: 'fallback', error: friendly });
+      console.warn('[webllm-engine] device-lost / OOM:', err, '\n  →', friendly);
+    } else {
+      setState({ status: 'error', error: msg });
+    }
     // Reset so a retry can re-attempt the load.
     window.__vfWebLLM = undefined;
     (window as any).__vfWebllmImport = undefined;

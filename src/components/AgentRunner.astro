@@ -345,7 +345,14 @@
         cls = 'bg-verdigris-deep';
         break;
       case 'fallback':
-        label = 'fallback · python mock';
+        // Distinguish "fallback because device-lost" (GPU OOM, suggest
+        // smaller model) from "fallback because no WebGPU" (hardware
+        // limitation, no fix).
+        if (error && /memory|device|model/i.test(error)) {
+          label = 'gpu oom · try ?model=phi-3.5';
+        } else {
+          label = 'fallback · python mock';
+        }
         cls = 'bg-copper-deep';
         break;
       case 'error':
@@ -354,7 +361,15 @@
         cls = 'bg-copper-deep';
         break;
     }
-    if (bannerStatus) bannerStatus.textContent = label;
+    if (bannerStatus) {
+      bannerStatus.textContent = label;
+      // Surface the full engine error in the title attribute for hover.
+      if (error && status === 'error') {
+        bannerStatus.title = error;
+      } else {
+        bannerStatus.removeAttribute('title');
+      }
+    }
     if (bannerPulse) bannerPulse.className = `w-2 h-2 rounded-full ${cls}`;
     if (bannerStatus) bannerStatus.dataset.state = status;
   }

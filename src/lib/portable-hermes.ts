@@ -20,7 +20,11 @@
  * signals intent.
  */
 
-import { loadWebLLM, getEngineState } from './webllm-engine';
+import {
+  loadWebLLM,
+  getEngineState,
+  isDeviceLostError,
+} from './webllm-engine';
 import {
   parseJsonFunctionCalls,
   buildJsonToolSystemPrompt,
@@ -189,11 +193,38 @@ export class PortableHermesHandle {
     // IMPORTANT: do NOT pass `tools` here. WebLLM's parser will
     // JSON.parse the model's plain-text reply and throw on the first
     // non-JSON token. See json-tool-parser.ts for the full rationale.
-    const reply = await engine.chat.completions.create({
-      messages: fullHistory as any,
-      temperature: 0.7,
-      max_tokens: opts?.maxTokens ?? 256,
-    });
+    let reply: any;
+    try {
+      reply = await engine.chat.completions.create({
+        messages: fullHistory as any,
+        temperature: 0.7,
+        max_tokens: opts?.maxTokens ?? 256,
+      });
+    } catch (llmErr) {
+      // GPU device-lost / out-of-memory: the engine was loaded OK but
+      // the GPU couldn't handle the inference (or ran out of VRAM
+      // mid-generation). Fall back to the mock LLM for this turn so
+      // the user still gets a response. Mark the engine as broken so
+      // subsequent calls also fall back instead of retrying and
+      // re-crashing the device.
+      if (isDeviceLostError(llmErr)) {
+        const friendly =
+          '⚠️ GPU ran out of memory mid-generation. ' +
+          'Append `?model=phi-3.5` or `?model=tinyllama` to this URL ' +
+          'for a smaller model. ' +
+          'Falling back to the Python mock LLM for this turn.';
+        console.warn('[portable-hermes] device-lost, falling back to mock:', llmErr);
+        const mock = await mockChat(this.pyodide, history);
+        return {
+          content: `${friendly}\n\n${mock.content}`,
+          toolCalls: mock.toolCalls,
+          tokens: mock.tokens,
+          llmCost: mock.llmCost,
+          usedLlm: false,
+        };
+      }
+      throw llmErr;
+    }
 
     const choice = reply.choices[0];
     const rawText: string = choice.message?.content ?? '';
