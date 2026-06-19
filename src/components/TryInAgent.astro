@@ -2,9 +2,13 @@
 /**
  * TryInAgent — the meta-pitch CTA, three entry points.
  *
- *   A. Try in browser  ← NEW: loads Pyodide + Hermes stub, no install needed
+ *   A. Try in browser  ← dumb-client demo: 0 LLM in browser, 3 sponsor panels
  *   B. Paste prompt    ← for users with their own Hermes install
  *   C. Direct download ← AGENT.md
+ *
+ * Note: the old "Pyodide · ≈ 20 MB · runs locally" copy is gone.
+ * The new copy reflects that the browser does NO inference — that's
+ * the whole point of the dumb-agent narrative.
  */
 
 const hermesPrompt = `Install the VerdantForged skill from https://verdantforged.pages.dev/AGENT.md and walk me through what it does.`;
@@ -21,25 +25,27 @@ const hermesPrompt = `Install the VerdantForged skill from https://verdantforged
   </p>
 
   <div class="mt-20 max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- A: Try in browser (Pyodide) -->
+    <!-- A: Try in browser (dumb client) -->
     <div class="vf-card relative border-verdigris/40">
       <span class="vf-eyebrow absolute top-6 right-6 text-verdigris-deep">Browser</span>
       <h3 class="text-display-sm font-display font-semibold text-ink">
-        Try in browser
+        Try the demo
       </h3>
       <p class="text-body text-ink-soft mt-4">
-        Loads a cutdown Hermes Agent compiled to Python-in-WebAssembly (Pyodide)
-        right here. 2–5 second cold start. No install. Nothing leaves your device.
+        A dumb client: just a textarea. The broker does the planning, attestation,
+        and settlement server-side, surfaced live across three sponsor panels.
       </p>
-      <button
-        type="button"
-        data-action="try-in-browser"
+      <a
+        href={`${import.meta.env.BASE_URL}/agent/`}
         class="vf-button mt-8 w-full justify-center"
       >
-        Open Hermes in browser
-      </button>
+        Open the demo
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
       <p class="text-caption text-ink-soft mt-4 text-center font-mono">
-        Pyodide · ≈ 20 MB · runs locally
+        no LLM · ≈ 22 KB · works on any device
       </p>
     </div>
 
