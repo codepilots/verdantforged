@@ -62,6 +62,9 @@ const sessionShort = 'sess_7f3a91c4b9c2';
             <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+        <p class="mt-4 text-caption text-ink-soft max-w-md">
+          First skill call loads Hermes-pyodide (~20 MB, one-time). All calls after that resolve instantly.
+        </p>
       </div>
 
       <!-- Active state: hidden until user opens a session -->
@@ -199,9 +202,13 @@ const sessionShort = 'sess_7f3a91c4b9c2';
 
 <script>
   import { createDashboard } from '~/lib/session-dashboard';
+  import { makeOnSkillCall } from '~/lib/verdant-agent';
 
   // Create the landing-page dashboard. Wire it up immediately so visitors see
   // the interactive demo without needing to click "Try it in your browser" first.
+  // The onSkillCall callback lazily loads Pyodide on the first invocation —
+  // Open sandbox is instant, the first Make skill call triggers the ~20MB
+  // WASM download, then every subsequent call reuses the cached runtime.
   const dash = createDashboard({
     rootId: 'vf-dashboard',
     maxBudgetUsd: 0.50,
@@ -211,6 +218,7 @@ const sessionShort = 'sess_7f3a91c4b9c2';
     extendSeconds: 120,   // +2 min per extend
     sessionShort: 'sess_7f3a91c4b9c2',
     environment: 'python-3.11-base',
+    onSkillCall: makeOnSkillCall(),
   });
 
   // Update the call-count pill + refund row dynamically. Polling at 250ms

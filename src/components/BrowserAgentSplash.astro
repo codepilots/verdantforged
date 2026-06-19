@@ -254,6 +254,7 @@
 
 <script>
   import { createDashboard } from '~/lib/session-dashboard';
+  import { loadVerdantAgent, type SkillResult } from '~/lib/verdant-agent';
 
   // BrowserAgentSplash — wires the "Try in browser" CTA to lazy-load Pyodide.
   // Reference implementation: https://github.com/hdresearch/hermes-pyodide
@@ -333,93 +334,37 @@
 
   async function bootInBrowserAgent() {
     try {
-      // ─── Stage 1: Pyodide ───────────────────────────────────────────
+      // ─── Stages 1-3: Pyodide + Hermes + Skill via the shared module ───
+      // This populates window.__vfPyodide, window.__vfAgentSkill, and
+      // registers verdantforged.explainer in Pyodide's sys.modules. The
+      // landing-page SessionDashboard and the splash dashboard share
+      // this singleton — calling loadVerdantAgent() is idempotent.
       setStage('pyodide', 'loading', 5, 'Downloading Python runtime (~20 MB)...');
       setStatus('Downloading Pyodide...');
+      await new Promise((r) => setTimeout(r, 200));
+      setStage('pyodide', 'loading', 30);
 
-      // Inject the Pyodide loader script
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js';
-      document.head.appendChild(script);
-
-      await new Promise<void>((resolve, reject) => {
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Pyodide from CDN. Check your network or try option B (paste prompt).'));
-      });
-
-      // Simulate incremental progress while Pyodide initializes
-      // (Pyodide doesn't expose fine-grained progress yet — fake it)
-      for (let p = 10; p <= 90; p += 20) {
-        await new Promise((r) => setTimeout(r, 120));
-        setStage('pyodide', 'loading', p);
-      }
-
-      // @ts-ignore — loaded from CDN
-      const pyodide = await window.loadPyodide({
-        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/',
-      });
+      // Start the load (will resolve when done). Show progress while we wait.
+      const skillCall = await loadVerdantAgent();
 
       setStage('pyodide', 'done', 100, 'Python runtime ready');
-      setStatus('Python runtime loaded. Loading Hermes Agent...');
-
-      // ─── Stage 2: Hermes (cutdown) ──────────────────────────────────
-      setStage('hermes', 'loading', 20);
-      // The full Hermes-pyodide is ~600 KB of Python. We bootstrap a minimal
-      // stub here that demonstrates the protocol — full Hermes integration
-      // is post-hackathon.
-      await new Promise((r) => setTimeout(r, 400));
-      setStage('hermes', 'loading', 60, 'Bootstrapping cutdown runtime...');
-      await new Promise((r) => setTimeout(r, 400));
-
-      const EXPLAINER = `
-import sys, json
-print("[hermes] runtime initialized (cutdown build)", file=sys.stderr)
-print("[hermes] python", sys.version.split()[0], file=sys.stderr)
-`;
-
-      await pyodide.runPythonAsync(EXPLAINER);
       setStage('hermes', 'done', 100, 'Cutdown Hermes runtime ready');
-      setStatus('Loading VerdantForged skill...');
-
-      // ─── Stage 3: Skill ─────────────────────────────────────────────
-      setStage('skill', 'loading', 30, 'Fetching AGENT.md...');
-      const agentMd = await fetch('/AGENT.md').then((r) => r.text());
-      setStage('skill', 'loading', 70, 'Parsing protocol summary...');
-
-      const SKILL = `
-import textwrap
-agent_md = ${JSON.stringify(agentMd)}
-
-def summarize(md):
-    # Extract first paragraph of each major section
-    lines = md.split('\\n')
-    sections = []
-    current = None
-    for line in lines:
-        if line.startswith('## '):
-            if current: sections.append(current)
-            current = {'heading': line[3:].strip(), 'body': []}
-        elif current and line.strip() and not line.startswith('#'):
-            current['body'].append(line.strip())
-    if current: sections.append(current)
-    # Render compact summary
-    out = []
-    for s in sections[:6]:
-        body = ' '.join(s['body'])[:240]
-        out.append(f"### {s['heading']}\\n{body}...")
-    return '\\n\\n'.join(out)
-
-result = summarize(agent_md)
-`;
-      await pyodide.runPythonAsync(SKILL);
-      const summary = await pyodide.runPythonAsync('result');
+      setStage('skill', 'loading', 50, 'Fetching AGENT.md...');
+      await new Promise((r) => setTimeout(r, 200));
       setStage('skill', 'done', 100, 'Skill loaded');
-      setStatus('Ready.');
 
-      // ─── Show result ────────────────────────────────────────────────
+      // ─── One-shot summary for the modal body ───────────────────────
+      // The shared explainer cycles through sections; this first call
+      // returns the first section's summary. The dashboard below will
+      // call the same skill again on every "Make skill call" click.
+      setStatus('Generating protocol summary...');
+      const result = await skillCall();
+      const summary = result.summary;
+
+      setStatus('Ready.');
       // Render summary as HTML-safe markdown-ish blocks
       const html = summary
-        .split(/### (.+)/)
+        .split(/§ (.+?) — /)
         .reduce<string[]>((acc, chunk, i) => {
           if (i === 0) return acc;
           if (i % 2 === 1) return [...acc, `<h3 class="text-display-sm font-display font-semibold text-copper-deep mt-4 mb-2">${chunk}</h3>`];
@@ -438,10 +383,9 @@ result = summarize(agent_md)
 
   // ─── Inline dashboard wiring ──────────────────────────────────────────
   // Wires the compact dashboard tile in the result panel via the shared
-  // session-dashboard module. Independent of Pyodide — works whether or
-  // not the runtime loaded. This is the v2 centerpiece: user sees the
-  // same timer / escrow / cost breakdown that the full portable-Hermes
-  // skill set would populate in production.
+  // session-dashboard module. The onSkillCall callback reuses the
+  // Pyodide singleton loaded above (bootInBrowserAgent) — first call to
+  // makeSkillCall resolves instantly because the skill is already loaded.
   createDashboard({
     rootId: 'vf-splash',
     maxBudgetUsd: 0.50,
@@ -451,5 +395,20 @@ result = summarize(agent_md)
     extendSeconds: 120,   // +2 min per extend
     sessionShort: 'sess_demo',
     environment: 'python-3.11-base',
+    onSkillCall: makeSplashSkillCall(),
   });
+
+  // Late-bind the splash skill call. Waits for the shared Pyodide
+  // singleton (loaded by the landing-page SessionDashboard's first
+  // skill call OR by bootInBrowserAgent() above) before invoking.
+  type SkillFn = () => Promise<SkillResult>;
+  let _splashSkill: SkillFn | null = null;
+  function makeSplashSkillCall(): () => Promise<SkillResult> {
+    return async () => {
+      if (!_splashSkill) {
+        _splashSkill = await loadVerdantAgent();
+      }
+      return _splashSkill();
+    };
+  }
 </script>

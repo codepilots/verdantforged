@@ -40,11 +40,32 @@ export type DashboardConfig = {
   rootId: string;
   maxBudgetUsd: number;
   costPerMin: number;       // broker compute cost per minute
-  skillCostUsd: number;     // per-call skill cost
+  skillCostUsd: number;     // per-call skill cost (paid to broker)
   leaseSeconds: number;     // initial lease (e.g. 300 = 5 min)
   extendSeconds: number;    // minutes added per extend click (e.g. 120)
   sessionShort: string;     // displayed session id (truncated, e.g. "sess_…")
   environment: string;      // e.g. "python-3.11-base"
+  /**
+   * Optional hook invoked when "Make skill call" is clicked. The dashboard
+   * awaits the promise and surfaces the result in the call log. If the
+   * promise rejects, the call is rolled back (no cost charged, no count
+   * increment) and the error message is logged in copper.
+   *
+   * Return value:
+   *   - summary:   a short human-readable string appended to the call log
+   *   - llmCost:   dollar amount to add to the LLM cost column (Nous
+   *                inference, Nous Portal per-token pricing). Defaults to 0
+   *                when omitted.
+   *   - tokens:    total tokens used (input + output). Optional.
+   *
+   * If onSkillCall is omitted, the dashboard behaves as before: just bump
+   * the counter, log "broker_call · <env> · +$0.0050", no real work.
+   */
+  onSkillCall?: () => Promise<{
+    summary: string;
+    llmCost?: number;
+    tokens?: number;
+  }>;
 };
 
 export type DashboardHandle = {
@@ -95,8 +116,10 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
   let elapsedSec = 0;
   let totalUsd = 0;
   let callCount = 0;
+  let llmUsdTotal = 0;       // accumulated Nous inference cost
   let tickId: number | null = null;
   let logFirstWiped = false;
+  let skillCallInFlight = false;
 
   function render() {
     if (!idle || !active) return;
@@ -114,7 +137,7 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     if (total)   total.textContent   = fmtMoney(totalUsd);
     if (broker)  broker.textContent  = fmtMoney((elapsedSec / 60) * cfg.costPerMin);
     if (skill)   skill.textContent   = fmtMoney(callCount * cfg.skillCostUsd);
-    if (llm)     llm.textContent     = fmtMoney(0); // v1: LLM cost baked into broker
+    if (llm)     llm.textContent     = fmtMoney(llmUsdTotal);
     if (meter) {
       const pct = Math.min(100, Math.round((totalUsd / cfg.maxBudgetUsd) * 100));
       meter.style.width = `${pct}%`;
@@ -159,15 +182,57 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     appendLog(`<span class="text-verdigris-deep">▸</span> Session opened · lease ${fmtClock(cfg.leaseSeconds)} · budget ${fmtMoney(cfg.maxBudgetUsd)}`);
   }
 
-  function makeSkillCall() {
+  async function makeSkillCall() {
     if (!activeFlag || closed) return;
+    if (skillCallInFlight) return;  // de-dupe rapid clicks
     if (totalUsd + cfg.skillCostUsd > cfg.maxBudgetUsd) {
       appendLog('<span class="text-copper-deep">▸</span> Budget exceeded — close or extend the session');
       return;
     }
-    callCount += 1;
-    tick();   // recompute total + render
-    appendLog(`<span class="text-verdigris-deep">▸</span> broker_call · ${cfg.environment} · +${fmtMoney(cfg.skillCostUsd)}`);
+    skillCallInFlight = true;
+    const callN = callCount + 1;
+    appendLog(`<span class="text-ink-soft">▸</span> broker_call #${callN} · ${cfg.environment} · <em>running…</em>`);
+
+    if (!cfg.onSkillCall) {
+      // No agent wired: v1 mock behaviour — count it, charge skill cost.
+      callCount += 1;
+      skillCallInFlight = false;
+      tick();
+      appendLog(`<span class="text-verdigris-deep">▸</span> mock_call #${callCount} · +${fmtMoney(cfg.skillCostUsd)}`);
+      return;
+    }
+
+    try {
+      const result = await cfg.onSkillCall();
+      // Reserve budget up-front so a slow agent can't exceed it.
+      callCount += 1;
+      const llmCost = Math.max(0, result.llmCost ?? 0);
+      llmUsdTotal += llmCost;
+      const tokenSuffix = result.tokens ? ` · ${result.tokens} tok` : '';
+      const llmSuffix = llmCost > 0 ? ` · llm +${fmtMoney(llmCost)}` : '';
+      tick();
+      appendLog(
+        `<span class="text-verdigris-deep">▸</span> ` +
+        `<strong>${escapeHtml(result.summary)}</strong>` +
+        ` <span class="text-ink-soft">(${cfg.environment} · +${fmtMoney(cfg.skillCostUsd)}${llmSuffix}${tokenSuffix})</span>`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`<span class="text-copper-deep">▸</span> skill_call failed · ${escapeHtml(msg)} · no charge`);
+    } finally {
+      skillCallInFlight = false;
+    }
+  }
+
+  // Minimal HTML escape for log entries (summary strings come from
+  // agent output; trust nothing).
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function extend() {
