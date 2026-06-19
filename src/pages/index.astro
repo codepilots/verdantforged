@@ -116,14 +116,6 @@ import Footer       from '~/components/Footer.astro';
 </BaseLayout>
 
 <script>
-  // Install Hermes Portable auto-launch: warms WebLLM on first user activity
-  // (mousemove/keydown/scroll/touchstart), boots Pyodide on chat-input focus.
-  // No button press required — by the time the user navigates to /agent/ the
-  // model is partially or fully warm.
-  import('~/lib/auto-launch').then(({ installAutoLaunch }) => {
-    installAutoLaunch();
-  }).catch((err) => console.error('[auto-launch] install failed:', err));
-
   // Global scroll-reveal: any .vf-reveal element not yet visible fades in when it enters viewport.
   const observer = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
@@ -138,7 +130,4 @@ import Footer       from '~/components/Footer.astro';
   setTimeout(() => {
     document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
   }, 50);
-
-  // Lenis smooth scroll removed 2026-06-19 — see BaseLayout.astro comment.
-  // Native browser scroll is used everywhere.
 </script>

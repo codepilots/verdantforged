@@ -1,0 +1,100 @@
+---
+/**
+ * SponsorPanel — visual frame for one of the three sponsor panels
+ * (NVIDIA / Nous / Stripe). Each panel gets:
+ *  - a colored header with the sponsor brand color
+ *  - a status pill (waiting / active / done)
+ *  - a content slot filled by JS at runtime
+ *
+ * Pure markup — no JS. The page script updates [data-role] children
+ * as broker events fire.
+ */
+interface Props {
+  /** 'nvidia' | 'nous' | 'stripe' — picks the brand color */
+  sponsor: 'nvidia' | 'nous' | 'stripe';
+  /** Sponsor display name (e.g. "NVIDIA NemoClaw") */
+  name: string;
+  /** One-line subtitle (e.g. "SEV-SNP attestation") */
+  role: string;
+  /** Status label shown in the pill until events arrive */
+  initialStatus?: string;
+}
+
+const { sponsor, name, role, initialStatus = 'awaiting plan' } = Astro.props;
+
+const SPONSOR_COLOR: Record<string, string> = {
+  nvidia: 'text-[#76b900]', // NVIDIA green
+  nous:   'text-[#3b82f6]', // Nous blue
+  stripe: 'text-[#635bff]', // Stripe purple
+};
+
+const SPONSOR_BG: Record<string, string> = {
+  nvidia: 'border-l-[#76b900]',
+  nous:   'border-l-[#3b82f6]',
+  stripe: 'border-l-[#635bff]',
+};
+
+const SPONSOR_DOT: Record<string, string> = {
+  nvidia: 'bg-[#76b900]',
+  nous:   'bg-[#3b82f6]',
+  stripe: 'bg-[#635bff]',
+};
+
+const color = SPONSOR_COLOR[sponsor];
+const bg = SPONSOR_BG[sponsor];
+const dot = SPONSOR_DOT[sponsor];
+---
+
+<article
+  class={`vf-sponsor-panel border border-moss/30 border-l-4 ${bg} rounded-xl bg-bg p-5 transition-all duration-400`}
+  data-sponsor={sponsor}
+  data-status="idle"
+>
+  <header class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <p class={`vf-eyebrow font-mono uppercase tracking-widest ${color}`}>
+        {sponsor}
+      </p>
+      <h3 class="font-display font-semibold text-ink text-body-lg leading-tight mt-1">
+        {name}
+      </h3>
+      <p class="text-caption text-ink-soft font-mono">{role}</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class={`w-2 h-2 rounded-full ${dot} sponsor-dot`} aria-hidden="true"></span>
+      <code
+        class="font-mono text-caption uppercase tracking-widest text-ink-soft"
+        data-role={`${sponsor}-status`}
+      >{initialStatus}</code>
+    </div>
+  </header>
+
+  <div class={`sponsor-body space-y-3 text-body-sm font-mono`} data-role={`${sponsor}-body`}>
+    <p class="text-ink-soft">
+      <span class="text-ink-50">waiting for plan...</span>
+    </p>
+  </div>
+</article>
+
+<style>
+  .vf-sponsor-panel[data-status="active"] {
+    @apply border-verdigris;
+    box-shadow: 0 0 0 1px theme('colors.verdigris');
+  }
+  .vf-sponsor-panel[data-status="done"] {
+    @apply border-moss;
+  }
+  .vf-sponsor-panel[data-status="error"] {
+    @apply border-copper-deep;
+  }
+  .vf-sponsor-panel .sponsor-dot {
+    transition: transform 0.2s ease;
+  }
+  .vf-sponsor-panel[data-status="active"] .sponsor-dot {
+    animation: pulse-active 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-active {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.4); }
+  }
+</style>
