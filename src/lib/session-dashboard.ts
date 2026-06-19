@@ -46,10 +46,16 @@ export type DashboardConfig = {
   sessionShort: string;     // displayed session id (truncated, e.g. "sess_…")
   environment: string;      // e.g. "python-3.11-base"
   /**
-   * Optional hook invoked when "Make skill call" is clicked. The dashboard
-   * awaits the promise and surfaces the result in the call log. If the
-   * promise rejects, the call is rolled back (no cost charged, no count
-   * increment) and the error message is logged in copper.
+   * Optional hook invoked when "Make skill call" is clicked, OR when a
+   * prompt form is submitted via the wired `[data-action="${rootId}-prompt"]`
+   * button. The dashboard awaits the promise and surfaces the result in
+   * the call log. If the promise rejects, the call is rolled back (no
+   * cost charged, no count increment) and the error message is logged in
+   * copper.
+   *
+   * The argument is the typed prompt (empty string for round-robin / no
+   * prompt). The dashboard reads it from the input `[data-role="prompt-input"]`
+   * if one exists in the document.
    *
    * Return value:
    *   - summary:   a short human-readable string appended to the call log
@@ -61,7 +67,7 @@ export type DashboardConfig = {
    * If onSkillCall is omitted, the dashboard behaves as before: just bump
    * the counter, log "broker_call · <env> · +$0.0050", no real work.
    */
-  onSkillCall?: () => Promise<{
+  onSkillCall?: (prompt: string) => Promise<{
     summary: string;
     llmCost?: number;
     tokens?: number;
@@ -70,9 +76,10 @@ export type DashboardConfig = {
 
 export type DashboardHandle = {
   open: () => void;
-  makeSkillCall: () => void;
+  makeSkillCall: (prompt?: string) => Promise<void>;
   extend: () => void;
   close: (reason?: string) => void;
+  submitPrompt: () => void;
   isActive: () => boolean;
   getSnapshot: () => {
     active: boolean;
@@ -182,16 +189,25 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     appendLog(`<span class="text-verdigris-deep">▸</span> Session opened · lease ${fmtClock(cfg.leaseSeconds)} · budget ${fmtMoney(cfg.maxBudgetUsd)}`);
   }
 
-  async function makeSkillCall() {
+  async function makeSkillCall(prompt?: string) {
     if (!activeFlag || closed) return;
     if (skillCallInFlight) return;  // de-dupe rapid clicks
+
+    // Read the prompt input value if a prompt wasn't passed explicitly
+    // AND an input field exists. Empty string means "no prompt".
+    if (prompt === undefined) {
+      const input = rootEl.querySelector<HTMLInputElement>('[data-role="prompt-input"]');
+      prompt = input?.value?.trim() ?? '';
+    }
+
     if (totalUsd + cfg.skillCostUsd > cfg.maxBudgetUsd) {
       appendLog('<span class="text-copper-deep">▸</span> Budget exceeded — close or extend the session');
       return;
     }
     skillCallInFlight = true;
     const callN = callCount + 1;
-    appendLog(`<span class="text-ink-soft">▸</span> broker_call #${callN} · ${cfg.environment} · <em>running…</em>`);
+    const promptSuffix = prompt ? ` · <em>${escapeHtml(prompt.slice(0, 60))}${prompt.length > 60 ? '…' : ''}</em>` : '';
+    appendLog(`<span class="text-ink-soft">▸</span> broker_call #${callN} · ${cfg.environment}${promptSuffix} · <em>running…</em>`);
 
     if (!cfg.onSkillCall) {
       // No agent wired: v1 mock behaviour — count it, charge skill cost.
@@ -203,7 +219,7 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     }
 
     try {
-      const result = await cfg.onSkillCall();
+      const result = await cfg.onSkillCall(prompt);
       // Reserve budget up-front so a slow agent can't exceed it.
       callCount += 1;
       const llmCost = Math.max(0, result.llmCost ?? 0);
@@ -222,6 +238,16 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     } finally {
       skillCallInFlight = false;
     }
+  }
+
+  // Programmatic entry point for the form-submit handler: reads the
+  // input, calls onSkillCall(prompt), then clears the input.
+  function submitPrompt(): void {
+    const input = rootEl.querySelector<HTMLInputElement>('[data-role="prompt-input"]');
+    const text = input?.value?.trim() ?? '';
+    void makeSkillCall(text).then(() => {
+      if (input) input.value = '';
+    });
   }
 
   // Minimal HTML escape for log entries (summary strings come from
@@ -262,9 +288,25 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     });
   };
   wire('open-session', open);
-  wire('skill-call',   makeSkillCall);
+  wire('skill-call',   () => void makeSkillCall(''));
   wire('extend',       extend);
   wire('close',        () => close());
+  wire('prompt',       submitPrompt);
+
+  // Wire any form containing the prompt input + a submit button to
+  // submit on Enter / button-click. The form's submit event is the
+  // canonical entry point.
+  document.querySelectorAll<HTMLFormElement>('form').forEach((form) => {
+    const input = form.querySelector<HTMLInputElement>('[data-role="prompt-input"]');
+    const submitBtn = form.querySelector<HTMLButtonElement>(`[data-action="${cfg.rootId}-prompt"]`);
+    if (!input || !submitBtn) return;
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submitPrompt();
+    });
+    // Allow the button's existing data-action click to also work
+    // (covered by wire('prompt', submitPrompt) above).
+  });
 
   // Render once on creation so the initial idle state is shown correctly
   render();
@@ -274,6 +316,7 @@ export function createDashboard(cfg: DashboardConfig): DashboardHandle {
     makeSkillCall,
     extend,
     close,
+    submitPrompt,
     isActive: () => activeFlag && !closed,
     getSnapshot: () => ({ active: activeFlag && !closed, remaining, elapsed: elapsedSec, totalUsd, callCount }),
   };

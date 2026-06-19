@@ -59,15 +59,14 @@ const lines = [
           <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </a>
-      <button
-        type="button"
-        data-action="try-in-browser"
-        class="vf-button-ghost"
+      <a
+        href={`${import.meta.env.BASE_URL}agent/`}
+        class="vf-button"
       >
         Try it in your browser
-      </button>
-      <a href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md" class="vf-button-ghost">
-        Read the spec
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </a>
     </div>
 

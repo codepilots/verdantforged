@@ -1,0 +1,459 @@
+---
+/**
+ * AgentRunner — full-page Pyodide-backed Hermes Agent sandbox
+ *
+ * Replaces the centered modal splash. Sits at /agent/, the page is
+ * itself the runner — no overlay, no fixed positioning, no z-index
+ * tricks. Browser handles scroll natively.
+ *
+ * Sections (top → bottom):
+ *   1. Top bar: "← Back to home" + live status
+ *   2. Boot panel: three progress stages + "Boot Hermes Agent" CTA
+ *   3. Dashboard tile: identical UX to the landing-page SessionDashboard
+ *   4. Inline transcript: scrollable log of all skill calls + responses
+ *
+ * The dashboard module is the same shared `session-dashboard.ts`, just
+ * with `rootId="vf-agent"`. The agent module is the same shared
+ * `verdant-agent.ts`, just with its own SkillResult.
+ */
+---
+
+<!-- Top bar -->
+<header
+  class="sticky top-0 z-10 bg-bg/95 backdrop-blur-sm border-b border-moss/30"
+>
+  <div class="vf-container flex items-center justify-between py-4">
+    <a
+      href={`${import.meta.env.BASE_URL}`}
+      class="inline-flex items-center gap-2 text-caption font-mono uppercase tracking-widest text-ink-soft hover:text-copper transition-colors"
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M13 7H1M6 12L1 7l5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back to home
+    </a>
+    <div class="flex items-center gap-3">
+      <span class="w-2 h-2 rounded-full bg-copper animate-pulse-verdigris"></span>
+      <h1 class="font-display font-semibold text-ink text-body">
+        <code class="text-copper">verdantforged.agent</code>
+        <span class="text-ink-soft font-normal ml-2">/ try-it-in-browser</span>
+      </h1>
+    </div>
+    <span id="agent-status" class="text-caption font-mono text-ink-soft">
+      ready
+    </span>
+  </div>
+</header>
+
+<!-- Main column -->
+<main class="vf-container py-12 md:py-16">
+  <!-- Hero strip -->
+  <div class="max-w-3xl">
+    <p class="vf-eyebrow">In-browser runner</p>
+    <h2 class="vf-heading-section mt-6">
+      A real Hermes-pyodide runtime, running in this tab.
+    </h2>
+    <p class="vf-body-lead mt-8">
+      Click <strong>Boot Hermes Agent</strong> below. Pyodide downloads
+      once (~20 MB) and the <code class="text-copper">verdantforged.explainer</code>
+      skill registers in your browser. After that, every prompt you type is a
+      real skill call — Python parses <code class="text-copper">AGENT.md</code>,
+      matches your question, and returns a section summary.
+    </p>
+    <p class="mt-4 text-caption text-ink-soft font-mono">
+      No data leaves your device. No API key in the bundle. Refund on close.
+    </p>
+  </div>
+
+  <!-- Boot panel — shown until user clicks Boot -->
+  <section
+    id="boot-panel"
+    class="mt-12 max-w-3xl"
+    aria-labelledby="boot-heading"
+  >
+    <div class="vf-card relative">
+      <h3 id="boot-heading" class="text-display-sm font-display font-semibold text-ink">
+        Boot the runtime
+      </h3>
+      <p class="mt-3 text-body text-ink-soft">
+        Three stages, one button. Pyodide downloads from jsDelivr,
+        Hermes Agent registers, AGENT.md is fetched and parsed into
+        the <code class="text-copper">verdantforged.explainer</code> skill.
+      </p>
+
+      <ol class="mt-8 space-y-6">
+        <li>
+          <div class="flex items-center justify-between text-caption font-mono uppercase tracking-widest text-ink-soft mb-2">
+            <span>1. Python runtime (Pyodide / WASM)</span>
+            <span id="stage-pyodide-status" class="text-ink">pending</span>
+          </div>
+          <div class="h-2 bg-moss/20 rounded-full overflow-hidden">
+            <div id="stage-pyodide-bar" class="h-full bg-copper transition-all duration-400 ease-apple" style="width: 0%"></div>
+          </div>
+          <p class="mt-2 text-caption text-ink-soft" id="stage-pyodide-detail">
+            ≈ 20 MB · loaded only when you click
+          </p>
+        </li>
+        <li>
+          <div class="flex items-center justify-between text-caption font-mono uppercase tracking-widest text-ink-soft mb-2">
+            <span>2. Hermes Agent runtime</span>
+            <span id="stage-hermes-status" class="text-ink">pending</span>
+          </div>
+          <div class="h-2 bg-moss/20 rounded-full overflow-hidden">
+            <div id="stage-hermes-bar" class="h-full bg-copper transition-all duration-400 ease-apple" style="width: 0%"></div>
+          </div>
+          <p class="mt-2 text-caption text-ink-soft" id="stage-hermes-detail">
+            Cutdown build, registers the <code class="text-copper">verdantforged</code> module
+          </p>
+        </li>
+        <li>
+          <div class="flex items-center justify-between text-caption font-mono uppercase tracking-widest text-ink-soft mb-2">
+            <span>3. VerdantForged skill (AGENT.md)</span>
+            <span id="stage-skill-status" class="text-ink">pending</span>
+          </div>
+          <div class="h-2 bg-moss/20 rounded-full overflow-hidden">
+            <div id="stage-skill-bar" class="h-full bg-copper transition-all duration-400 ease-apple" style="width: 0%"></div>
+          </div>
+          <p class="mt-2 text-caption text-ink-soft" id="stage-skill-detail">
+            Fetches and indexes AGENT.md, registers the <code class="text-copper">explainer.summarize(query)</code> entry point
+          </p>
+        </li>
+      </ol>
+
+      <div class="mt-10 flex items-center gap-4">
+        <button
+          type="button"
+          id="boot-btn"
+          class="vf-button"
+        >
+          Boot Hermes Agent
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <p id="boot-status" class="text-caption text-ink-soft font-mono" aria-live="polite">
+          Ready when you are.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dashboard — hidden until boot completes -->
+  <section
+    id="runner-dashboard"
+    class="mt-16 hidden"
+    aria-labelledby="dash-heading"
+  >
+    <div class="flex items-baseline justify-between mb-8">
+      <div>
+        <p class="vf-eyebrow">Step into the dashboard</p>
+        <h2 id="dash-heading" class="vf-heading-section mt-4">
+          Open a sandbox. Talk to the agent. Watch every cost tick.
+        </h2>
+      </div>
+    </div>
+
+    <article
+      id="vf-agent"
+      class="vf-card relative max-w-4xl mx-auto"
+      aria-label="VerdantForged session dashboard"
+      data-session-active="false"
+    >
+      <!-- Idle state -->
+      <div id="vf-agent-idle" class="flex flex-col items-center justify-center py-12 text-center">
+        <code class="font-mono text-caption text-ink-soft uppercase tracking-widest">
+          No active session
+        </code>
+        <p class="mt-3 text-body text-ink max-w-prose-vf">
+          Click below to provision a <code class="text-copper">python-3.11-base</code> enclave
+          and watch the escrow cover every skill call and every second of compute.
+        </p>
+        <button
+          type="button"
+          data-action="vf-agent-open-session"
+          class="vf-button mt-6"
+        >
+          Open sandbox
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <p class="mt-4 text-caption text-ink-soft max-w-md">
+          The Hermes-pyodide runtime is already loaded (above). The first skill call resolves instantly.
+        </p>
+      </div>
+
+      <!-- Active state -->
+      <div id="vf-agent-active" class="hidden">
+        <!-- Header strip -->
+        <header class="flex items-start justify-between gap-4">
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center gap-2 px-3 py-1 bg-verdigris-deep/10 border border-verdigris-deep/30 rounded-full text-caption font-mono text-verdigris-deep uppercase tracking-widest">
+                <span class="w-1.5 h-1.5 rounded-full bg-verdigris animate-pulse-verdigris"></span>
+                Active
+              </span>
+              <code class="text-caption text-ink-soft font-mono">sess_demo…</code>
+            </div>
+            <h3 class="text-display-sm font-display font-semibold text-ink mt-1">
+              <code class="text-copper">python-3.11-base</code>
+              <span class="text-ink-soft font-normal text-body-sm ml-2">· attested SEV-SNP</span>
+            </h3>
+          </div>
+          <span class="vf-eyebrow text-ink-soft">Session</span>
+        </header>
+
+        <!-- Countdown + meter -->
+        <div class="mt-10">
+          <div class="flex items-baseline justify-between">
+            <div>
+              <p class="vf-eyebrow text-ink-soft">Time remaining</p>
+              <p
+                class="mt-2 font-display font-semibold text-ink text-display-md tabular-nums"
+                data-role="clock"
+              >5:00</p>
+            </div>
+            <div class="text-right">
+              <p class="vf-eyebrow text-ink-soft">Elapsed</p>
+              <p class="mt-2 font-mono text-body text-ink-soft tabular-nums" data-role="elapsed">
+                0:00
+              </p>
+            </div>
+          </div>
+          <div
+            class="mt-4 h-2 bg-moss/20 rounded-full overflow-hidden"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-label="Budget used"
+          >
+            <div
+              class="h-full bg-copper transition-[width] duration-700"
+              style="width: 0%"
+              data-role="budget-fill"
+            ></div>
+          </div>
+        </div>
+
+        <!-- Cost breakdown -->
+        <dl class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6 border-t border-moss/30 pt-8">
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Broker compute</dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="broker-cost">$0.0000</dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Skill calls <span class="font-mono" data-role="call-count">(0)</span></dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="skill-cost">$0.0000</dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Nous inference</dt>
+            <dd class="mt-2 font-mono text-body text-ink tabular-nums" data-role="llm-cost">$0.0000</dd>
+          </div>
+          <div>
+            <dt class="vf-eyebrow text-ink-soft">Total spent</dt>
+            <dd class="mt-2 font-mono text-body text-copper-deep font-semibold tabular-nums" data-role="total">$0.0000</dd>
+          </div>
+        </dl>
+
+        <!-- Prompt input — the v3 centerpiece -->
+        <form
+          id="prompt-form"
+          class="mt-10"
+          onsubmit="return false"
+          aria-label="Send a prompt to the running skill"
+        >
+          <label for="prompt-input" class="vf-eyebrow text-ink-soft">Ask the agent</label>
+          <div class="mt-3 flex items-stretch gap-3">
+            <input
+              type="text"
+              id="prompt-input"
+              data-role="prompt-input"
+              placeholder="e.g. how does Stripe MPP release payment?"
+              autocomplete="off"
+              spellcheck="true"
+              class="flex-1 bg-bg border border-moss rounded-full px-5 py-3 font-sans text-body text-ink placeholder:text-ink-soft focus:border-copper focus:outline-none transition-colors"
+            />
+            <button
+              type="submit"
+              data-action="vf-agent-prompt"
+              class="vf-button"
+            >
+              Send
+            </button>
+          </div>
+          <p class="mt-2 text-caption text-ink-soft font-mono">
+            Skill searches AGENT.md sections by heading + body keyword match. Empty prompt cycles to next section.
+          </p>
+        </form>
+
+        <!-- Two secondary affordances -->
+        <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            data-action="vf-agent-skill-call"
+            class="vf-button-ghost justify-center"
+          >
+            Cycle random section
+          </button>
+          <button
+            type="button"
+            data-action="vf-agent-extend"
+            class="vf-button-ghost justify-center"
+          >
+            Extend (+2:00)
+          </button>
+          <button
+            type="button"
+            data-action="vf-agent-close"
+            class="vf-button-ghost justify-center"
+          >
+            Close session
+          </button>
+        </div>
+
+        <!-- Transcript — scrollable, bounded height -->
+        <div class="mt-10 border-t border-moss/30 pt-6">
+          <p class="vf-eyebrow text-ink-soft">Transcript</p>
+          <div
+            class="mt-3 max-h-[420px] overflow-y-auto rounded-xl border border-moss/30 bg-moss/5 p-5 space-y-3 font-mono text-body-sm"
+            data-role="log"
+            role="log"
+            aria-live="polite"
+          >
+            <p class="text-ink-soft">No skill calls yet — type a prompt above to talk to the agent.</p>
+          </div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- Post-dashboard notes -->
+  <section class="mt-16 max-w-3xl">
+    <p class="text-caption text-ink-soft font-mono">
+      This is a hackathon demo. Full Hermes Agent support in the browser is
+      on the post-hackathon roadmap — see
+      <a href={`${import.meta.env.BASE_URL}/AGENT.md`} class="vf-link">AGENT.md</a>
+      for the production install path.
+    </p>
+  </section>
+</main>
+
+<script>
+  import { createDashboard } from '~/lib/session-dashboard';
+  import { loadVerdantAgent, type SkillResult } from '~/lib/verdant-agent';
+
+  // ── Element handles ─────────────────────────────────────────────────
+  const bootPanel    = document.getElementById('boot-panel');
+  const dashPanel    = document.getElementById('runner-dashboard');
+  const bootBtn      = document.getElementById('boot-btn') as HTMLButtonElement | null;
+  const bootStatus   = document.getElementById('boot-status');
+  const agentStatus  = document.getElementById('agent-status');
+
+  const setBootStatus = (t: string) => { if (bootStatus) bootStatus.textContent = t; };
+  const setAgentStatus = (t: string) => { if (agentStatus) agentStatus.textContent = t; };
+
+  type StageId = 'pyodide' | 'hermes' | 'skill';
+  function setStage(stage: StageId, status: string, percent: number, detail?: string) {
+    const statusEl  = document.getElementById(`stage-${stage}-status`);
+    const barEl     = document.getElementById(`stage-${stage}-bar`);
+    const detailEl  = document.getElementById(`stage-${stage}-detail`);
+    if (statusEl) statusEl.textContent = status;
+    if (barEl)    barEl.style.width = `${percent}%`;
+    if (detail && detailEl) detailEl.textContent = detail;
+  }
+
+  // ── Boot the agent ──────────────────────────────────────────────────
+  let _skillCall: (() => Promise<SkillResult>) | null = null;
+
+  async function bootAgent() {
+    if (!bootBtn) return;
+    bootBtn.disabled = true;
+    bootBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    try {
+      setStage('pyodide', 'loading', 5, 'Downloading Python runtime (~20 MB)...');
+      setBootStatus('Downloading Pyodide...');
+
+      // Bump the progress bar in steps while loadVerdantAgent resolves
+      // (Pyodide doesn't expose fine-grained progress events).
+      let progressTimer: ReturnType<typeof setInterval> | null = null;
+      let p = 10;
+      progressTimer = setInterval(() => {
+        p = Math.min(p + 10, 90);
+        setStage('pyodide', 'loading', p);
+      }, 400);
+
+      _skillCall = await loadVerdantAgent();
+      if (progressTimer) clearInterval(progressTimer);
+
+      setStage('pyodide', 'done', 100, 'Python runtime ready');
+      setStage('hermes', 'done', 100, 'Cutdown Hermes runtime ready');
+      setStage('skill', 'done', 100, 'AGENT.md indexed, explainer registered');
+      setBootStatus('Ready. Open a sandbox to start the session.');
+      setAgentStatus('runtime ready');
+
+      // Reveal the dashboard, hide the boot CTA
+      if (bootPanel) bootPanel.classList.add('opacity-60');
+      if (dashPanel) dashPanel.classList.remove('hidden');
+      bootBtn.textContent = 'Runtime ready';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setBootStatus(`Error: ${msg}`);
+      setStage('pyodide', 'error', 0, msg);
+      setAgentStatus('error');
+      bootBtn.disabled = false;
+      bootBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      console.error('[AgentRunner]', err);
+    }
+  }
+
+  if (bootBtn) bootBtn.addEventListener('click', bootAgent);
+
+  // ── Wire the dashboard ──────────────────────────────────────────────
+  // The session-dashboard module handles ALL the wiring — it reads the
+  // prompt from the input on `[data-role="prompt-input"]`, calls
+  // onSkillCall(prompt), clears the input. The form's submit handler is
+  // wired by the module too, so Enter-to-submit just works.
+  //
+  // We wrap the agent's skillCall to forward the typed prompt to the
+  // Python explainer's summarize_query(prompt) instead of the
+  // round-robin summarize_next().
+  type SkillFn = (prompt: string) => Promise<SkillResult>;
+  const _agentSkill: SkillFn = async (prompt: string) => {
+    const pyodide = (window as any).__vfAgentSkill;
+    if (!pyodide) throw new Error('Pyodide not loaded');
+    if (prompt && prompt.trim()) {
+      pyodide.globals.set('vf_prompt', prompt.trim());
+      const summary = await pyodide.runPythonAsync(
+        'verdantforged.explainer.summarize_query(vf_prompt)',
+      );
+      const tokIn = await pyodide.runPythonAsync(
+        'verdantforged.explainer.last_input_tokens()',
+      );
+      const tokOut = await pyodide.runPythonAsync(
+        'verdantforged.explainer.last_output_tokens()',
+      );
+      const totalTokens = Number(tokIn) + Number(tokOut);
+      return {
+        summary: String(summary),
+        llmCost: totalTokens * 0.000003,
+        tokens: totalTokens,
+      };
+    }
+    // Empty prompt → round-robin via the base skill call.
+    const skillCall = await loadVerdantAgent();
+    return skillCall();
+  };
+
+  createDashboard({
+    rootId: 'vf-agent',
+    maxBudgetUsd: 0.50,
+    costPerMin: 0.0133,
+    skillCostUsd: 0.0050,
+    leaseSeconds: 300,
+    extendSeconds: 120,
+    sessionShort: 'sess_demo',
+    environment: 'python-3.11-base',
+    onSkillCall: _agentSkill,
+  });
+</script>

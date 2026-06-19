@@ -273,6 +273,74 @@ class _Explainer:
         self._last_out = len(summary) // 4
         return f"§ {heading} — {summary}"
 
+    def summarize_query(self, query: str) -> str:
+        """Match a free-form prompt against AGENT.md sections.
+
+        Scoring (rough but deterministic):
+          +5  if any keyword from the query appears in the heading
+          +1  per keyword found in the body
+          +2  bonus if the heading starts with a keyword
+          +3  bonus if a multi-word phrase from the query is contiguous
+
+        Returns the highest-scoring section, or the round-robin pick
+        if nothing scores above zero. The "no good match" fallback is
+        intentional — the dashboard still needs to surface SOMETHING
+        so the user knows the call completed.
+        """
+        if not query or not query.strip() or not self.sections:
+            return self.summarize_next()
+        # Tokenize query: lowercase, split on whitespace + punctuation
+        import re as _re
+        words = [_re.sub(r'[^a-z0-9]', '', w) for w in query.lower().split()]
+        words = [w for w in words if len(w) >= 3]
+        if not words:
+            return self.summarize_next()
+        phrases = []
+        for i in range(len(words) - 1):
+            phrases.append(words[i] + ' ' + words[i + 1])
+
+        best = None
+        best_score = 0
+        for h, body in self.sections:
+            hl = h.lower()
+            body_text = ' '.join(body).lower()
+            score = 0
+            for w in words:
+                if w in hl:
+                    score += 5
+                    if hl.startswith(w):
+                        score += 2
+                body_hits = body_text.count(w)
+                score += min(body_hits, 3)  # cap per-word body hits
+            for ph in phrases:
+                if ph in body_text:
+                    score += 3
+            if score > best_score:
+                best = (h, body)
+                best_score = score
+
+        if best is None:
+            return self.summarize_next()
+        h, body = best
+        # Compose the answer: heading + first 2 sentences of body
+        joined = ' '.join(body)
+        sentences = joined.split('. ')
+        summary = '. '.join(sentences[:2]).strip()
+        if not summary.endswith('.'):
+            summary += '.'
+        if len(summary) > 320:
+            summary = summary[:317] + '…'
+        # Bump cursor to this position so subsequent round-robin picks
+        # continue from where the user just looked.
+        try:
+            self.cursor = self.sections.index(best) + 1
+        except ValueError:
+            pass
+        # Token accounting
+        self._last_in = (len(query) + len(joined)) // 4
+        self._last_out = len(summary) // 4
+        return f"§ {h} — {summary}"
+
     def last_input_tokens(self) -> int:
         return self._last_in
 

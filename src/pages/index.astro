@@ -21,7 +21,6 @@ import SkillShowcase from '~/components/SkillShowcase.astro';
 import SessionDashboard from '~/components/SessionDashboard.astro';
 import TryInAgent   from '~/components/TryInAgent.astro';
 import Footer       from '~/components/Footer.astro';
-import BrowserAgentSplash from '~/components/BrowserAgentSplash.astro';
 ---
 
 <BaseLayout
@@ -113,8 +112,7 @@ import BrowserAgentSplash from '~/components/BrowserAgentSplash.astro';
 
   <Footer />
 
-  <!-- Lazy-loaded: Pyodide WASM browser agent. Triggered by [data-action="try-in-browser"]. -->
-  <BrowserAgentSplash />
+  <!-- Browser agent now lives at /agent/ — full-page takeover instead of modal. -->
 </BaseLayout>
 
 <script>

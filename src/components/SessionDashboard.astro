@@ -158,14 +158,45 @@ const sessionShort = 'sess_7f3a91c4b9c2';
           <span>Refund on close: <span class="text-verdigris-deep">${maxBudgetUsd.toFixed(4)}</span></span>
         </div>
 
+        <!-- Prompt input — type a question, agent reads AGENT.md -->
+        <form
+          id="prompt-form"
+          class="mt-10"
+          onsubmit="return false"
+          aria-label="Send a prompt to the running skill"
+        >
+          <label for="prompt-input" class="vf-eyebrow text-ink-soft">Ask the agent</label>
+          <div class="mt-3 flex items-stretch gap-3">
+            <input
+              type="text"
+              id="prompt-input"
+              data-role="prompt-input"
+              placeholder="e.g. how does Stripe MPP release payment?"
+              autocomplete="off"
+              spellcheck="true"
+              class="flex-1 bg-bg border border-moss rounded-full px-5 py-3 font-sans text-body text-ink placeholder:text-ink-soft focus:border-copper focus:outline-none transition-colors"
+            />
+            <button
+              type="submit"
+              data-action="vf-dashboard-prompt"
+              class="vf-button"
+            >
+              Send
+            </button>
+          </div>
+          <p class="mt-2 text-caption text-ink-soft font-mono">
+            Skill searches AGENT.md sections by heading + body keyword match. Empty prompt cycles to next section.
+          </p>
+        </form>
+
         <!-- Three affordances -->
-        <div class="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
             data-action="vf-dashboard-skill-call"
-            class="vf-button justify-center"
+            class="vf-button-ghost justify-center"
           >
-            Make skill call
+            Cycle random section
           </button>
           <button
             type="button"
@@ -183,12 +214,17 @@ const sessionShort = 'sess_7f3a91c4b9c2';
           </button>
         </div>
 
-        <!-- Compact call log -->
-        <div
-          class="mt-8 border-t border-moss/30 pt-6 space-y-2 text-caption font-mono"
-          data-role="log"
-        >
-          <p class="text-ink-soft">No skill calls yet.</p>
+        <!-- Compact call log — scrollable, bounded height -->
+        <div class="mt-8 border-t border-moss/30 pt-6">
+          <p class="vf-eyebrow text-ink-soft">Transcript</p>
+          <div
+            class="mt-3 max-h-[320px] overflow-y-auto rounded-xl border border-moss/30 bg-moss/5 p-4 space-y-2 text-caption font-mono"
+            data-role="log"
+            role="log"
+            aria-live="polite"
+          >
+            <p class="text-ink-soft">No skill calls yet — type a prompt above to talk to the agent.</p>
+          </div>
         </div>
       </div>
     </article>
