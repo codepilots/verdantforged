@@ -1,0 +1,65 @@
+# GitHub Pages deploy — fallback hosting for VerdantForged marketing site.
+#
+# Trigger: push to main, OR manual workflow_dispatch.
+# Live at: https://codepilots.github.io/verdantforged/
+#
+# This is a fallback for when Cloudflare Pages isn't wired yet.
+# Cloudflare Pages (see deploy.yml) is the primary target at verdantforged.pages.dev.
+#
+# Enable in repo: Settings -> Pages -> Source: GitHub Actions.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required permissions for pages deployment + OIDC
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Don't deploy if Cloudflare Pages workflow is also running on the same push —
+# prevents two parallel deploys wasting CI minutes.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install + Build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
