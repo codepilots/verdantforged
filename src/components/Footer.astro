@@ -68,10 +68,10 @@ const year = new Date().getFullYear();
       <div class="md:col-span-3">
         <p class="vf-eyebrow text-bg/50">Resources</p>
         <ul class="mt-6 space-y-3 text-body-sm">
-          <li><a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
-          <li><a href="https://github.com/hermes-agent/verdantforged" class="text-bg/85 hover:text-copper transition-colors">Source code</a></li>
-          <li><a href="../tee-broker-docs/SPEC.md" class="text-bg/85 hover:text-copper transition-colors">Protocol spec</a></li>
-          <li><a href="../tee-broker-pattern/SECURITY_AUDIT.md" class="text-bg/85 hover:text-copper transition-colors">Security audit</a></li>
+          <li><a href={`${import.meta.env.BASE_URL}/AGENT.md`} class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
+          <li><a href="https://github.com/codepilots/verdantforged" class="text-bg/85 hover:text-copper transition-colors">Source code</a></li>
+          <li><a href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md" class="text-bg/85 hover:text-copper transition-colors">Protocol spec</a></li>
+          <li><a href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md" class="text-bg/85 hover:text-copper transition-colors">Security audit</a></li>
           <li>
             <button
               type="button"
