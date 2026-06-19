@@ -177,7 +177,6 @@
 
   import { installAutoLaunch, getPortableHermes } from '~/lib/auto-launch';
   import { getEngineState } from '~/lib/webllm-engine';
-  import { createDashboard } from '~/lib/session-dashboard';
   import type { ChatMessage } from '~/lib/portable-hermes';
 
   installAutoLaunch();
@@ -193,6 +192,115 @@
   const chatStream    = document.getElementById('vf-chat-stream');
   const promptForm    = document.getElementById('vf-prompt-form') as HTMLFormElement | null;
   const promptInput   = document.getElementById('vf-prompt-input') as HTMLInputElement | null;
+
+  // ── Inline session ticker (banner-owned) ─────────────────────────
+  //
+  // The old createDashboard() module was tied to the landing-page
+  // tile's DOM contract (#vf-agent + idle/active article wrappers).
+  // On /agent/ the banner IS the dashboard — there's no separate
+  // card. So we drive cost/clock directly here. API matches the
+  // dashboard's so the broker-session listeners below stay readable.
+  type SessionState = {
+    active: boolean;
+    closed: boolean;
+    remaining: number;       // lease seconds left
+    elapsed: number;         // monotonic seconds since open
+    callCount: number;       // total skill calls
+    totalUsd: number;        // accrued cost
+    tickId: number | null;   // setInterval handle
+  };
+  const SESSION_CFG = {
+    maxBudgetUsd: 0.50,
+    costPerMin: 0.0133,
+    skillCostUsd: 0.0050,
+    leaseSeconds: 300,
+    extendSeconds: 120,
+  };
+  const session: SessionState = {
+    active: false,
+    closed: false,
+    remaining: SESSION_CFG.leaseSeconds,
+    elapsed: 0,
+    callCount: 0,
+    totalUsd: 0,
+    tickId: null,
+  };
+
+  function fmtMoney(n: number): string {
+    return `$${n.toFixed(4)}`;
+  }
+  function fmtClock(secs: number): string {
+    const m = Math.max(0, Math.floor(secs / 60));
+    const s = Math.max(0, secs % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function renderBannerTicker(): void {
+    if (bannerCost)  bannerCost.textContent  = fmtMoney(session.totalUsd);
+    if (bannerClock) bannerClock.textContent = fmtClock(session.remaining);
+  }
+
+  function sessionTick(): void {
+    if (!session.active || session.closed) return;
+    session.remaining = Math.max(0, session.remaining - 1);
+    session.elapsed += 1;
+    const brokerCost = (session.elapsed / 60) * SESSION_CFG.costPerMin;
+    session.totalUsd = brokerCost + session.callCount * SESSION_CFG.skillCostUsd;
+    renderBannerTicker();
+    if (session.remaining === 0) {
+      sessionClose('Lease expired');
+    }
+  }
+
+  function sessionOpen(): void {
+    if (session.active) return;
+    session.active = true;
+    session.closed = false;
+    session.remaining = SESSION_CFG.leaseSeconds;
+    session.elapsed = 0;
+    session.callCount = 0;
+    session.totalUsd = 0;
+    if (bannerSession) {
+      const id = `sess_${Math.random().toString(36).slice(2, 10)}`;
+      bannerSession.textContent = id;
+    }
+    if (bannerClose) {
+      bannerClose.disabled = false;
+      bannerClose.classList.remove('opacity-60');
+    }
+    session.tickId = window.setInterval(sessionTick, 1000);
+    renderBannerTicker();
+  }
+
+  function sessionExtend(): void {
+    if (!session.active || session.closed) return;
+    session.remaining += SESSION_CFG.extendSeconds;
+    renderBannerTicker();
+  }
+
+  function sessionClose(reason = 'Session closed'): void {
+    if (!session.active) return;
+    session.active = false;
+    session.closed = true;
+    if (session.tickId !== null) {
+      window.clearInterval(session.tickId);
+      session.tickId = null;
+    }
+    if (bannerSession) bannerSession.textContent = 'none';
+    if (bannerClose) {
+      bannerClose.disabled = true;
+      bannerClose.classList.add('opacity-60');
+    }
+    renderBannerTicker();
+    void reason;  // surfaced in the chat log by the caller
+  }
+
+  function sessionRecordCall(): void {
+    session.callCount += 1;
+    const brokerCost = (session.elapsed / 60) * SESSION_CFG.costPerMin;
+    session.totalUsd = brokerCost + session.callCount * SESSION_CFG.skillCostUsd;
+    renderBannerTicker();
+  }
 
   // ── Render engine state into the banner pill ────────────────────
   function renderBanner(state: ReturnType<typeof getEngineState>): void {
@@ -232,92 +340,38 @@
   }) as EventListener);
   renderBanner(getEngineState());
 
-  // ── Create the dashboard (drives banner cost/clock via DOM contract) ──
-  //
-  // The dashboard module's render() updates elements matching
-  // data-role="clock", data-role="total" etc. within the document —
-  // because the banner is sticky-top and uses the same data-roles,
-  // it auto-binds without a custom hook. Verify after build.
-  const dashboard = createDashboard({
-    rootId: 'vf-agent',
-    maxBudgetUsd: 0.50,
-    costPerMin: 0.0133,
-    skillCostUsd: 0.0050,
-    leaseSeconds: 300,
-    extendSeconds: 120,
-    sessionShort: 'sess_demo',
-    environment: 'python-3.11-base',
-    onSkillCall: async (prompt: string) => {
-      // Hand the prompt to Hermes Portable. The chat() method returns
-      // the agent's response + any tool calls it made.
-      const hermes = await getPortableHermes();
-      const history: ChatMessage[] = [
-        { role: 'user', content: prompt },
-      ];
-      const result = await hermes.chat(history);
-      // Note: the result.toolCalls array tracks what Hermes decided
-      // to invoke (e.g. broker_session). The dashboard session is
-      // already opened/extended/closed by the vf:broker-session
-      // listener below; we just return the chat result.
-      return {
-        summary: result.content || '(no response)',
-        llmCost: result.llmCost,
-        tokens: result.tokens,
-      };
-    },
-  });
-
   // ── React when Hermes decides to open a broker session ───────────
   window.addEventListener('vf:broker-session', ((e: CustomEvent) => {
     const { action, env } = e.detail as { action: 'open' | 'extend' | 'close'; env?: string };
-    if (action === 'open' && !dashboard.isActive()) {
-      dashboard.open();
+    if (action === 'open' && !session.active) {
+      sessionOpen();
       appendChatBubble('tool', `Hermes opened a broker session · env=${env ?? 'python-3.11-base'}`);
-    } else if (action === 'extend' && dashboard.isActive()) {
-      dashboard.extend();
+    } else if (action === 'extend' && session.active) {
+      sessionExtend();
       appendChatBubble('tool', 'Hermes extended the session');
-    } else if (action === 'close' && dashboard.isActive()) {
-      dashboard.close('Hermes closed the session');
+    } else if (action === 'close' && session.active) {
+      sessionClose('Hermes closed the session');
       appendChatBubble('tool', 'Hermes closed the broker session');
     }
   }) as EventListener);
 
-  // ── React when any skill runs (for the transcript) ───────────────
+  // ── React when any skill runs (for the transcript + cost accrual) ──
   window.addEventListener('vf:skill-called', ((e: CustomEvent) => {
     const { name, args } = e.detail as { name: string; args: Record<string, any> };
     const argsStr = Object.entries(args)
       .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
       .join(' · ');
     appendChatBubble('tool', `⚙ ${name}${argsStr ? ` · ${argsStr}` : ''}`);
+    if (session.active) sessionRecordCall();
   }) as EventListener);
-
-  // ── Update banner session id when dashboard opens ────────────────
-  const origOpen = dashboard.open;
-  dashboard.open = function () {
-    origOpen();
-    if (bannerSession) {
-      const id = `sess_${Math.random().toString(36).slice(2, 10)}`;
-      bannerSession.textContent = id;
-    }
-    if (bannerClose) {
-      bannerClose.disabled = false;
-      bannerClose.classList.remove('opacity-60');
-    }
-  };
-  const origClose = dashboard.close;
-  dashboard.close = function (reason?: string) {
-    origClose(reason);
-    if (bannerSession) bannerSession.textContent = 'none';
-    if (bannerClose) {
-      bannerClose.disabled = true;
-      bannerClose.classList.add('opacity-60');
-    }
-  };
 
   // ── Banner close button ─────────────────────────────────────────
   if (bannerClose) {
     bannerClose.addEventListener('click', () => {
-      dashboard.close('User closed');
+      if (session.active) {
+        sessionClose('User closed');
+        appendChatBubble('tool', 'Session closed');
+      }
     });
   }
 
@@ -325,9 +379,12 @@
   type BubbleRole = 'user' | 'agent' | 'tool';
   function appendChatBubble(role: BubbleRole, text: string): void {
     if (!chatStream) return;
-    // Clear the placeholder on first real message.
-    const placeholder = chatStream.querySelector<HTMLElement>('[data-role="chat-placeholder"]');
-    if (placeholder) placeholder.remove();
+    // Remove the placeholder paragraph (and any other "starting up"
+    // messages) on the first real chat activity.
+    const placeholders = chatStream.querySelectorAll<HTMLElement>('p');
+    if (placeholders.length === 1 && placeholders[0].textContent?.includes('Hermes Portable is starting up')) {
+      chatStream.innerHTML = '';
+    }
 
     const bubble = document.createElement('div');
     bubble.className = 'vf-chat-bubble';

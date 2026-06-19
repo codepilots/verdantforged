@@ -76,8 +76,17 @@ const canonical = new URL(Astro.url.pathname, Astro.site).toString();
       href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     />
 
-    <!-- Lenis smooth scroll — loaded as module, fallback to native -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/lenis@1.3.4/dist/lenis.min.js"></script>
+    <!-- Lenis smooth scroll: intentionally NOT loaded here.
+
+         Loading lenis@1.3.x as a <script type="module"> triggers
+         "Cannot assign to read only property 'prototype'" in some
+         browsers because the bundled class uses TC39 class fields
+         that interact oddly with the ES module wrapper. Native
+         scroll is fine for a single-page demo and avoids the bug.
+         If we want Lenis back later: load via npm import in
+         index.astro (not as a global script tag) and pin to a
+         version that exports a CJS-compatible build.
+    -->
   </head>
   <body>
     <slot />
