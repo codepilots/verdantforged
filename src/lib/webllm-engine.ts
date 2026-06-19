@@ -89,26 +89,22 @@ export async function loadWebLLM(opts?: {
   window.__vfWebLLM = (async () => {
     setState({ status: 'loading', progress: 0 });
 
-    // Inject the WebLLM module from esm.run (idempotent — check first).
-    if (!(window as any).webllm) {
-      const existing = document.querySelector('script[data-vf-webllm]');
-      if (!existing) {
-        const s = document.createElement('script');
-        s.type = 'module';
-        s.src = WEBLLM_CDN;
-        s.dataset.vfWebllm = 'true';
-        document.head.appendChild(s);
-        // The ESM module exports `CreateMLCEngine` on `window.webllm`.
-        // esm.run attaches the named exports to a `webllm` global.
-        await waitForGlobal('webllm', 15000);
-      }
+    // Load WebLLM as an ES module via dynamic import(). esm.run's
+    // bundle exposes named exports (CreateMLCEngine, etc.) — it does
+    // NOT auto-attach to window.webllm like a UMD bundle would.
+    // Dynamic import() is the supported way to consume it.
+    //
+    // Module-level caching via window.__vfWebllmImport means we only
+    // hit the network once per page; subsequent calls await the same
+    // promise.
+    if (!(window as any).__vfWebllmImport) {
+      (window as any).__vfWebllmImport = import(/* @vite-ignore */ WEBLLM_CDN);
     }
-
-    const webllm = (window as any).webllm;
+    const webllm = await (window as any).__vfWebllmImport;
     if (!webllm?.CreateMLCEngine) {
       throw new Error(
-        'WebLLM failed to attach to window from CDN. ' +
-        'Check network access to esm.run.',
+        'WebLLM loaded but CreateMLCEngine export missing. ' +
+        'Check that esm.run is reachable.',
       );
     }
 
@@ -117,6 +113,17 @@ export async function loadWebLLM(opts?: {
       ? 'webgpu'
       : 'wasm';
     setState({ backend });
+
+    // If WebGPU is unavailable, surface that as a friendly status
+    // BEFORE CreateMLCEngine tries (and fails) to initialize the GPU.
+    // The user can still use the chat — Hermes Portable falls back to
+    // the Pyodide mock LLM.
+    if (backend === 'wasm') {
+      setState({
+        status: 'fallback',
+        error: 'No WebGPU — using Python mock for chat (WebLLM needs WebGPU)',
+      });
+    }
 
     const initProgressCallback = (report: { progress: number; text?: string }) => {
       const p = Math.max(0, Math.min(1, report.progress ?? 0));
@@ -138,31 +145,11 @@ export async function loadWebLLM(opts?: {
     setState({ status: 'error', error: msg });
     // Reset so a retry can re-attempt the load.
     window.__vfWebLLM = undefined;
+    (window as any).__vfWebllmImport = undefined;
     throw err;
   });
 
   return window.__vfWebLLM;
-}
-
-/**
- * Wait until `window[globalName]` exists. Polls every 50ms up to
- * `timeoutMs`. Resolves with the value, rejects on timeout.
- */
-function waitForGlobal(globalName: string, timeoutMs: number): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      const v = (window as any)[globalName];
-      if (v) return resolve(v);
-      if (Date.now() - start > timeoutMs) {
-        return reject(
-          new Error(`Timed out waiting for window.${globalName}`),
-        );
-      }
-      setTimeout(check, 50);
-    };
-    check();
-  });
 }
 
 /**

@@ -326,7 +326,8 @@
         cls = 'bg-copper-deep';
         break;
       case 'error':
-        label = `error · ${error ?? 'unknown'}`;
+        // Keep the message short — the full error is in console.error.
+        label = 'engine error · see console';
         cls = 'bg-copper-deep';
         break;
     }
