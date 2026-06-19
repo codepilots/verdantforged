@@ -100,3 +100,13 @@ tee-broker-site/
 ## License
 
 MIT — same as the underlying tee-broker-pattern.
+
+## Acknowledgments
+
+This project stands on the work of many people and projects. In particular:
+
+- **[browser-ai](https://github.com/jakobhoeg/browser-ai)** by [Jakob Hoeg](https://github.com/jakobhoeg) — the JSON tool-call parser and markdown-fence system prompt pattern in `src/lib/json-tool-parser.ts` are adapted from his Vercel AI SDK WebLLM provider (Apache 2.0). Without his workaround for WebLLM 0.2.78's broken tool-call parser, the in-browser agent demo would not have working tool calling.
+- **[WebLLM](https://github.com/mlc-ai/web-llm)** by the [MLC-AI](https://mlc.ai/) team — the in-browser LLM runtime that powers Hermes Portable. Apache 2.0.
+- **[Pyodide](https://pyodide.org/)** — CPython compiled to WebAssembly, used to run the Hermes Portable Python skills in the browser. MPL-2.0.
+- **[Nous Research](https://nousresearch.com/)** — the Hermes-3-Llama-3.1-8B model and the broader Hermes agent architecture.
+- **[NVIDIA NemoClaw](https://developer.nvidia.com/)**, **[Stripe](https://stripe.com/)** — the SEV-SNP attestation and x402 micro-payment infrastructure that the VerdantForged broker runs on.

@@ -21,6 +21,11 @@
  */
 
 import { loadWebLLM, getEngineState } from './webllm-engine';
+import {
+  parseJsonFunctionCalls,
+  buildJsonToolSystemPrompt,
+  type ToolDefinition,
+} from './json-tool-parser';
 
 const PYODIDE_VERSION = 'v0.27.7';
 const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`;
@@ -131,8 +136,9 @@ export class PortableHermesHandle {
   /**
    * Run one chat turn through Hermes Portable. Hermes decides which
    * skills (broker_session, summarize, list_skills) to call. Skill
-   * invocations are executed inside Python and surfaced back via the
-   * tool_calls array.
+   * invocations are surfaced via the model's text reply — we parse
+   * the reply ourselves rather than relying on WebLLM's broken
+   * tool-call parser (see json-tool-parser.ts for the workaround).
    */
   async chat(history: ChatMessage[], opts?: { maxTokens?: number }): Promise<ChatResult> {
     const llmState = getEngineState();
@@ -148,96 +154,75 @@ export class PortableHermesHandle {
     // Real LLM path: stream the chat through WebLLM, parse tool calls.
     const engine = await loadWebLLM();
 
-    // Inject the skill catalog as a system message (Hermes function-calling).
-    const systemMsg: ChatMessage = {
-      role: 'system',
-      content: PORTABLE_SYSTEM_PROMPT,
-    };
-    const fullHistory = [systemMsg, ...history];
-
-    // Pull the OpenAI-shaped tool definitions from Python.
+    // Pull the OpenAI-shaped tool definitions from Python and reformat
+    // them as a JSON schema in the system prompt. We DO NOT pass
+    // `tools` to `engine.chat.completions.create()` because WebLLM
+    // 0.2.78's `chatCompletion` has a non-standard parser that does
+    // `JSON.parse(modelOutput)` and throws on any non-JSON model
+    // reply (see webllm-engine.ts header notes and json-tool-parser.ts).
+    // The pattern is borrowed from jakobhoeg/browser-ai (Apache 2.0).
     this.pyodide.globals.set('_max_tokens', opts?.maxTokens ?? 256);
     const toolsJson = await this.pyodide.runPythonAsync(
       'json.dumps(verdantforged.portable.tool_definitions())',
     );
-    const tools = JSON.parse(String(toolsJson));
+    const tools: ToolDefinition[] = JSON.parse(String(toolsJson));
 
-    // WebLLM 0.2.78's `chatCompletion` calls `xg(message, false)` to parse
-    // the model's text as a raw JSON array of {name, arguments} tool calls.
-    // This is a non-standard format that no model in WebLLM's catalog
-    // actually emits — the Hermes-3 model returns plain text (or OpenAI
-    // `` markers, which WebLLM 0.2.78 does not understand).
-    // Result: as soon as tools are present AND the model returns any text
-    // that isn't valid JSON, WebLLM throws
-    //   "Internal error: error encountered when parsing outputMessage for
-    //    function calling. Got outputMessage: ... SyntaxError: Unexpected
-    //    token 'H' ... is not valid JSON"
-    // We catch that and degrade gracefully: surface the model's text as
-    // a normal message, no tool call extracted. The Pyodide mock LLM
-    // remains the deterministic fallback for agent behaviour; the real
-    // LLM path is now plain chat.
-    let reply: any;
-    try {
-      reply = await engine.chat.completions.create({
-        messages: fullHistory as any,
-        tools: tools as any,
-        temperature: 0.7,
-        max_tokens: opts?.maxTokens ?? 256,
-      });
-    } catch (llmErr) {
-      // WebLLM's JSON.parse-the-whole-output parser choked on the
-      // model's text. Fall back to plain chat (no tools) so the user
-      // still gets a response. Surface the model output as best we can
-      // by re-running WITHOUT tools — then WebLLM returns the raw text.
-      const msg = llmErr instanceof Error ? llmErr.message : String(llmErr);
-      const isToolParseError =
-        msg.includes('error encountered when parsing outputMessage') ||
-        msg.includes('is not valid JSON') ||
-        msg.includes('Function call output message');
-      if (!isToolParseError) {
-        // Some other WebLLM error — re-throw so the caller can show it.
-        throw llmErr;
-      }
-      console.warn(
-        '[portable-hermes] WebLLM tool-call parser failed; falling back ' +
-        'to plain chat (no tools) for this turn.',
-        llmErr,
-      );
-      // Retry without tools so WebLLM's `_generate` returns the raw
-      // text instead of trying to parse it as a tool call.
-      reply = await engine.chat.completions.create({
-        messages: fullHistory as any,
-        temperature: 0.7,
-        max_tokens: opts?.maxTokens ?? 256,
-      });
-    }
+    // Convert the OpenAI-shaped tool defs into the shape
+    // buildJsonToolSystemPrompt expects (parameters already JSON Schema).
+    const sysTools: ToolDefinition[] = tools.map((t: any) => ({
+      name: t.function?.name ?? t.name,
+      description: t.function?.description ?? t.description,
+      parameters: t.function?.parameters ?? t.parameters ?? { type: 'object', properties: {} },
+    }));
+
+    const systemPrompt = buildJsonToolSystemPrompt(
+      PORTABLE_SYSTEM_PROMPT,
+      sysTools,
+      { allowParallelToolCalls: false },
+    );
+
+    const fullHistory: ChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+    ];
+
+    // IMPORTANT: do NOT pass `tools` here. WebLLM's parser will
+    // JSON.parse the model's plain-text reply and throw on the first
+    // non-JSON token. See json-tool-parser.ts for the full rationale.
+    const reply = await engine.chat.completions.create({
+      messages: fullHistory as any,
+      temperature: 0.7,
+      max_tokens: opts?.maxTokens ?? 256,
+    });
 
     const choice = reply.choices[0];
-    const msg = choice.message;
+    const rawText: string = choice.message?.content ?? '';
     const usage = reply.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
     const tokens = usage.total_tokens;
     const llmCost = tokens * 0.000003;  // ~Nous Hermes-4 70B rate
 
+    // Parse the model's plain-text reply for tool calls. The parser
+    // handles five output formats: markdown fence, XML tags,
+    // Python-style, Llama-style, raw JSON.
+    const { toolCalls: parsedCalls, textContent } = parseJsonFunctionCalls(rawText);
+
     const toolCalls: ChatResult['toolCalls'] = [];
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
-      for (const tc of msg.tool_calls) {
-        try {
-          const args = JSON.parse(tc.function.arguments);
-          toolCalls.push({ name: tc.function.name, args });
-          // Execute the skill in Python and capture the result.
-          const skillResult = await this.executeSkill(tc.function.name, args);
-          // Fire a DOM event so the dashboard can react (e.g. open broker session).
-          window.dispatchEvent(new CustomEvent('vf:skill-called', {
-            detail: { name: tc.function.name, args, result: skillResult },
-          }));
-        } catch (e) {
-          console.error('[portable-hermes] tool call failed:', tc.function.name, e);
-        }
+    for (const tc of parsedCalls) {
+      try {
+        toolCalls.push({ name: tc.toolName, args: tc.args });
+        // Execute the skill in Python and capture the result.
+        const skillResult = await this.executeSkill(tc.toolName, tc.args);
+        // Fire a DOM event so the dashboard can react (e.g. open broker session).
+        window.dispatchEvent(new CustomEvent('vf:skill-called', {
+          detail: { name: tc.toolName, args: tc.args, result: skillResult },
+        }));
+      } catch (e) {
+        console.error('[portable-hermes] tool call failed:', tc.toolName, e);
       }
     }
 
     return {
-      content: msg.content ?? '',
+      content: textContent,
       toolCalls,
       tokens,
       llmCost,
