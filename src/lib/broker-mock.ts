@@ -28,6 +28,7 @@ import type {
   PlanStep,
 } from './broker-types';
 import { SKILL_CATALOG, BROKER_PLATFORM_ACCT, BROKER_PLATFORM_NAME, predictedRange } from './skill-catalog';
+import type { SkillCatalogEntry } from './skill-catalog';
 import { matchIntentToSkills, mockStepResult } from './intent-matcher';
 
 // ─── Constants ────────────────────────────────────────────────
@@ -86,6 +87,15 @@ class BrokerMock implements BrokerClient {
 
   private subscribers = new Set<(e: BrokerEvent) => void>();
 
+  /**
+   * Cache the most recent PlanResponse so approve() can run the
+   * actual plan the planner emitted (the executor must respect the
+   * plan — that's the contract).
+   *
+   * Cleared at the end of approve() so the next session starts fresh.
+   */
+  private lastPlanResponse: PlanResponse | null = null;
+
   subscribe(fn: (e: BrokerEvent) => void): () => void {
     this.subscribers.add(fn);
     return () => this.subscribers.delete(fn);
@@ -121,7 +131,7 @@ class BrokerMock implements BrokerClient {
     const timestamp = nowSec();
     const signature = await realSign(`${plan_hash}|${session_id}|${timestamp}`);
 
-    return {
+    const response: PlanResponse = {
       session_id,
       planner_pubkey: SYNTHETIC_PLANNER_PUBKEY,
       plan,
@@ -137,6 +147,11 @@ class BrokerMock implements BrokerClient {
       timestamp,
       signature,
     };
+
+    // Cache for approve() — see lastPlanResponse comment.
+    this.lastPlanResponse = response;
+
+    return response;
   }
 
   // ─── approve (the centerpiece — emits all events) ───────────
@@ -162,19 +177,42 @@ class BrokerMock implements BrokerClient {
     });
     await sleep(180);
 
-    // We need the plan to compute per-step timing. Recover it from the
-    // signature-less match. In real mode, the broker would have stored
-    // the plan when intent() was called. Here we re-run the matcher
-    // against a placeholder; the visible timing/IDs are what matter
-    // for the demo. The actual plan came from the intent() call.
+    // In a real broker, the executor would have stored the plan when
+    // intent() was called, and would retrieve it now from plan_hash.
+    // For the mock we re-derive the skills by matching the catalog
+    // against a synthetic intent. This means: the executor runs the
+    // SAME plan the planner emitted. Plan = skill list is the
+    // contract.
+    //
+    // We pull the intent from the most-recently-emitted PlanResponse
+    // via a per-instance cache. (See the intent() method.)
+    const recentPlan = this.lastPlanResponse;
+    const skillsToRun: Array<{
+      skill: SkillCatalogEntry;
+      args: Record<string, unknown>;
+      cost: number;
+    }> = recentPlan
+      ? recentPlan.plan.map(p => {
+          const entry = SKILL_CATALOG.find(s => s.name === p.skill);
+          if (!entry) throw new Error(`unknown skill in plan: ${p.skill}`);
+          return {
+            skill: entry,
+            args: p.args,
+            cost: p.cost_estimate_usd,
+          };
+        })
+      // Fallback: when no plan is cached (e.g. direct call to approve),
+      // use the demo default pair. This shouldn't happen in the page
+      // flow because intent() is always called first, but it keeps
+      // the mock robust to test code.
+      : this.pickDemoSkillsForSession().map(s => ({
+          skill: s,
+          args: s.default_args,
+          cost: s.static_cost_usd,
+        }));
 
-    // Simulate 2 steps by default (most demos use primary + summarize).
-    // For a richer demo we run 2 steps.
-    const stepsToRun = 2;
-    const skillsPerStep = this.pickDemoSkillsForSession();
-
-    for (let i = 0; i < stepsToRun; i++) {
-      const skillEntry = skillsPerStep[i];
+    for (let i = 0; i < skillsToRun.length; i++) {
+      const { skill: skillEntry, cost: skillCost } = skillsToRun[i];
       const stepNum = i + 1;
 
       // planner:reasoning for this step
@@ -213,20 +251,20 @@ class BrokerMock implements BrokerClient {
 
       // transfer:created
       const transfer_id = `tr_test_${rand(24)}`;
-      const appFee = +(skillEntry.static_cost_usd * APP_FEE_RATE).toFixed(4);
+      const appFee = +(skillCost * APP_FEE_RATE).toFixed(4);
       this.emit({
         type: 'transfer:created',
         step: stepNum,
         transfer_id,
         destination_acct: skillEntry.provider_acct,
         destination_name: skillEntry.provider_name,
-        amount_usd: skillEntry.static_cost_usd,
+        amount_usd: skillCost,
         application_fee_usd: appFee,
       });
       await sleep(180);
 
       // step:completed
-      const resultSummary = mockStepResult(skillEntry, skillsPerStep[0]?.name ?? '');
+      const resultSummary = mockStepResult(skillEntry, recentPlan?.plan[0]?.args?._matched_for as string ?? '');
       const executorSig = await realSign(`${plan_hash}|step:${stepNum}|complete`);
       this.emit({
         type: 'step:completed',
@@ -246,7 +284,7 @@ class BrokerMock implements BrokerClient {
         result: { summary: resultSummary },
         stripe_transfer_id: transfer_id,
         stripe_destination_acct: skillEntry.provider_acct,
-        stripe_amount_usd: skillEntry.static_cost_usd,
+        stripe_amount_usd: skillCost,
         stripe_application_fee_usd: appFee,
         executor_signature: executorSig,
       });
@@ -255,7 +293,7 @@ class BrokerMock implements BrokerClient {
     // totals
     const totalActual = +trace.reduce((s, r) => s + r.stripe_amount_usd, 0).toFixed(4);
     const totalAppFee = +trace.reduce((s, r) => s + r.stripe_application_fee_usd, 0).toFixed(4);
-    const totalEstimated = totalActual; // mock: estimate == actual
+    const totalEstimated = recentPlan?.total_cost_estimate_usd ?? totalActual;
     const refundUsd = +(Math.max(0, totalEstimated - totalActual)).toFixed(4);
     const totals: ExecutionTotals = {
       estimated_cost_usd: totalEstimated,
@@ -275,6 +313,9 @@ class BrokerMock implements BrokerClient {
       totals,
       refund_id,
     });
+
+    // Clear the cached plan so the next session starts fresh.
+    this.lastPlanResponse = null;
 
     return {
       session_id,
