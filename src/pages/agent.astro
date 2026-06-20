@@ -442,59 +442,75 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
     if (receiptsList)    receiptsList.innerHTML = '';
   }
 
-  // ── Stripe client (test mode, optional) ──────────────────────
-  // We try to load Stripe.js from CDN; if it fails (or no key), we run
-  // in "mock stripe" mode and synthesize PaymentIntent IDs. The page
-  // works either way — judges see the protocol either way.
+  // ── Stripe client — calls local backend via Cloudflare Tunnel ───
+  // The backend (port 8790) holds the secret key and creates real
+  // PaymentIntents + Transfers against the Stripe test API.
+  // Tunnel URL: https://stripe.codepilots.co.uk
 
-  let stripeInstance: any = null;
-  let stripeInMockMode = true;
+  const STRIPE_BACKEND_URL = 'https://stripe.codepilots.co.uk';
+  let stripeBackendOnline = false;
 
-  async function initStripe(): Promise<void> {
-    const pk = (import.meta as any).env?.PUBLIC_STRIPE_PK;
-    if (!pk) {
-      console.info('[stripe] no PUBLIC_STRIPE_PK — running in mock stripe mode');
-      stripeInMockMode = true;
-      return;
-    }
+  async function checkStripeBackend(): Promise<void> {
     try {
-      // Load Stripe.js from CDN (only on this page, not globally)
-      if (!(window as any).Stripe) {
-        await new Promise<void>((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://js.stripe.com/v3/';
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error('failed to load stripe.js'));
-          document.head.appendChild(s);
-        });
-      }
-      stripeInstance = (window as any).Stripe(pk);
-      stripeInMockMode = false;
-      console.info('[stripe] loaded real Stripe.js — paymentIntents.create will fire against test API');
+      const r = await fetch(`${STRIPE_BACKEND_URL}/health`, { method: 'GET' });
+      const data = await r.json();
+      stripeBackendOnline = data?.stripe_configured === true;
+      console.info(`[stripe] backend ${stripeBackendOnline ? 'online' : 'not configured'} — ${data?.mode ?? 'unknown'} mode`);
     } catch (err) {
-      console.warn('[stripe] load failed, falling back to mock:', err);
-      stripeInMockMode = true;
+      console.warn('[stripe] backend unreachable, falling back to mock mode:', err);
+      stripeBackendOnline = false;
     }
   }
 
-  async function createPaymentIntent(amountCents: number, label: string): Promise<string> {
-    if (stripeInMockMode || !stripeInstance) {
-      // Mock PI ID — same shape as Stripe's `pi_test_...`
+  async function createPaymentIntent(amountCents: number, label: string, sessionId: string): Promise<string> {
+    if (!stripeBackendOnline) {
+      // Fallback: synthesize a pi_test_* ID if backend is down
       const rand = Math.random().toString(36).slice(2, 26);
-      return `pi_test_${rand}`;
+      return `pi_test_mock_${rand}`;
     }
     try {
-      const result = await stripeInstance.paymentIntents.create({
-        amount: amountCents,
-        currency: 'usd',
-        payment_method_types: ['card'],
-        confirm: false, // demo: don't actually confirm (would need a payment method)
-        description: label,
+      const r = await fetch(`${STRIPE_BACKEND_URL}/create-payment-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_cents: amountCents,
+          description: label,
+          session_id: sessionId,
+        }),
       });
-      return result.id;
+      const data = await r.json();
+      if (data.id) {
+        return data.id;  // Real pi_test_... from Stripe
+      }
+      console.warn('[stripe] backend returned no id, using mock fallback:', data);
+      return `pi_test_mock_${Math.random().toString(36).slice(2, 26)}`;
     } catch (err) {
-      console.warn('[stripe] create failed, falling back to mock ID:', err);
-      return `pi_test_${Math.random().toString(36).slice(2, 26)}`;
+      console.warn('[stripe] backend call failed, using mock fallback:', err);
+      return `pi_test_mock_${Math.random().toString(36).slice(2, 26)}`;
+    }
+  }
+
+  async function createTransfer(amountCents: number, destination: string, transferGroup: string, description: string): Promise<string> {
+    if (!stripeBackendOnline) {
+      const rand = Math.random().toString(36).slice(2, 26);
+      return `tr_test_mock_${rand}`;
+    }
+    try {
+      const r = await fetch(`${STRIPE_BACKEND_URL}/create-transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_cents: amountCents,
+          destination,
+          transfer_group: transferGroup,
+          description,
+        }),
+      });
+      const data = await r.json();
+      return data.id ?? `tr_test_mock_${Math.random().toString(36).slice(2, 26)}`;
+    } catch (err) {
+      console.warn('[stripe] transfer call failed:', err);
+      return `tr_test_mock_${Math.random().toString(36).slice(2, 26)}`;
     }
   }
 
@@ -717,7 +733,8 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
     appendChat('broker', `POST /v1/stripe.paymentIntents.create · ${fmtMoney(currentPlan.total_cost_estimate_usd)}`);
     const piId = await createPaymentIntent(
       Math.round(currentPlan.total_cost_estimate_usd * 100),
-      `VerdantForged plan ${currentPlan.session_id}`
+      `VerdantForged plan ${currentPlan.session_id}`,
+      currentPlan.session_id
     );
     appendChat('broker', `→ ${piId}`);
 
@@ -817,6 +834,6 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
     }
   });
 
-  // Init Stripe lazily (so the page is interactive even if Stripe CDN is slow)
-  initStripe();
+  // Check the Stripe backend lazily (so the page is interactive even if backend is slow)
+  checkStripeBackend();
 </script>
