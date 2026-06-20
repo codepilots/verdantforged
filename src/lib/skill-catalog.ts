@@ -7,6 +7,12 @@
  *
  * The variety (different envs, different cost ranges, different n=)
  * is what makes the §9 cost-prediction visualization interesting.
+ *
+ * NOTE: Amounts are scaled to dollars (not cents) — Stripe's sandbox
+ * minimum is ~$3.20 (must convert to ≥30 pence), so all skill prices
+ * are above that floor. Real marketplace economics would be in the
+ * $0.01–$0.10 range; the demo values are 1000× higher to satisfy the
+ * sandbox floor while keeping the per-step economics visible.
  */
 
 export interface SkillCatalogEntry {
@@ -34,7 +40,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'code-review-v3.2',
     description: 'Security-focused code review for Python/JS/Rust.',
     env: 'python-3.11-base',
-    static_cost_usd: 0.0240,
+    static_cost_usd: 24.00,
     n_executions: 247,
     reputation: 4.8,
     provider_acct: 'acct_1QAcmPLM5nrG2kAc',
@@ -46,7 +52,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'summarize-doc',
     description: 'Section-aware summarization of loaded documents.',
     env: 'python-3.11-base',
-    static_cost_usd: 0.0080,
+    static_cost_usd: 8.00,
     n_executions: 891,
     reputation: 4.9,
     provider_acct: 'acct_1QBdocRN9xvK3mPz',
@@ -58,7 +64,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'generate-tests',
     description: 'Generate pytest test suite from source code.',
     env: 'python-3.11-data-science',
-    static_cost_usd: 0.0410,
+    static_cost_usd: 41.00,
     n_executions: 156,
     reputation: 4.3,
     provider_acct: 'acct_1QCtstVW4qLm8nRs',
@@ -70,7 +76,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'translate-fr',
     description: 'Multilingual translation, optimized for Romance languages.',
     env: 'node-20-base',
-    static_cost_usd: 0.0120,
+    static_cost_usd: 12.00,
     n_executions: 432,
     reputation: 4.7,
     provider_acct: 'acct_1QDtrlHQ2bnF7wYx',
@@ -82,7 +88,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'sql-query',
     description: 'Safe SQL generation + execution against a sandboxed DB.',
     env: 'python-3.11-data-science',
-    static_cost_usd: 0.0290,
+    static_cost_usd: 29.00,
     n_executions: 78,
     reputation: 4.2,
     provider_acct: 'acct_1QEsqlME3pkT9vBn',
@@ -94,7 +100,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'image-caption',
     description: 'Vision-language captioning with detail level control.',
     env: 'python-3.11-base',
-    static_cost_usd: 0.0180,
+    static_cost_usd: 18.00,
     n_executions: 1102,
     reputation: 4.9,
     provider_acct: 'acct_1QFimgCP8hwR6jZs',
@@ -106,7 +112,7 @@ export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
     name: 'extract-pdf-text',
     description: 'Layout-aware PDF text extraction with table recovery.',
     env: 'python-3.11-base',
-    static_cost_usd: 0.0060,
+    static_cost_usd: 6.00,
     n_executions: 334,
     reputation: 4.6,
     provider_acct: 'acct_1QGpdfXT5yrD4kLq',
