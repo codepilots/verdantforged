@@ -484,6 +484,7 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
         }),
       });
       const data = await r.json();
+      console.info('[stripe] backend response:', JSON.stringify(data));
       if (data.id) {
         return data.id;  // Real pi_test_... from Stripe
       }
