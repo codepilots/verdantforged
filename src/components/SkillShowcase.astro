@@ -109,6 +109,28 @@ price  = <span class="str">"$0.001 / second"</span></code></pre>
     </article>
   </div>
 
+  <!-- ML cost prediction diagram -->
+  <div class="mt-20 max-w-5xl mx-auto">
+    <div class="vf-card overflow-hidden">
+      <div class="px-6 pt-6">
+        <p class="vf-eyebrow text-verdigris-deep">predictable pricing</p>
+        <h3 class="font-display font-semibold text-ink text-display-sm mt-2">
+          The more a skill runs, the cheaper it gets.
+        </h3>
+        <p class="text-body-sm text-ink-soft mt-3 max-w-prose-vf">
+          Each execution tightens the cost prediction band. Practiced skills (high n=) get
+          narrow ranges and star ratings. New skills start wide and converge.
+        </p>
+      </div>
+      <img
+        src={`${import.meta.env.BASE_URL}/diagrams/cost-prediction.png`}
+        alt="ML cost prediction: scatter plot showing cost variance narrowing as execution count increases, with skill badges showing star ratings, execution counts, and predicted cost ranges"
+        class="w-full mt-6"
+        loading="lazy"
+      />
+    </div>
+  </div>
+
   <!-- Register CTA -->
   <div class="mt-24 max-w-3xl mx-auto text-center">
     <p class="vf-eyebrow">Open marketplace</p>

@@ -183,6 +183,31 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
       </section>
     </div>
 
+    <!-- ── ARCHITECTURE DIAGRAM ─────────────────────────────────── -->
+    <section class="mt-12 max-w-5xl mx-auto" aria-label="How the demo works">
+      <details class="vf-card group">
+        <summary class="cursor-pointer flex items-center justify-between py-4 px-6">
+          <div>
+            <p class="vf-eyebrow text-verdigris-deep">architecture</p>
+            <p class="font-display font-semibold text-ink text-body-lg mt-1">How this demo works</p>
+          </div>
+          <span class="text-caption font-mono text-ink-soft group-open:rotate-90 transition-transform">▸</span>
+        </summary>
+        <div class="px-6 pb-6">
+          <img
+            src={`${import.meta.env.BASE_URL}/diagrams/data-flow.png`}
+            alt="Data flow diagram: dumb client sends intent to broker, broker fans out to NVIDIA NemoClaw (attestation), Nous Hermes (planning), and Stripe MPP (payment) panels"
+            class="w-full rounded-xl border border-moss/30"
+            loading="lazy"
+          />
+          <p class="text-caption text-ink-soft font-mono mt-3">
+            The dumb client runs zero LLM. It POSTs free text to the broker, which plans the work,
+            attests the enclave, and settles per step — each sponsor panel updates live.
+          </p>
+        </div>
+      </details>
+    </section>
+
     <!-- ── RECEIPTS / MONEY TRAIL (appears after execution) ─────── -->
     <section
       id="vf-receipts"
