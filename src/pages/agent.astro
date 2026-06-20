@@ -463,6 +463,11 @@ import SponsorPanel from '~/components/SponsorPanel.astro';
   }
 
   async function createPaymentIntent(amountCents: number, label: string, sessionId: string): Promise<string> {
+    // Always try the backend first if it's online; otherwise mock.
+    // If checkStripeBackend hasn't run yet, run it now and wait.
+    if (!stripeBackendOnline) {
+      await checkStripeBackend();
+    }
     if (!stripeBackendOnline) {
       // Fallback: synthesize a pi_test_* ID if backend is down
       const rand = Math.random().toString(36).slice(2, 26);
