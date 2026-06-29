@@ -13,9 +13,8 @@
 const year = new Date().getFullYear();
 
 const stack = [
-  { name: 'NVIDIA NemoClaw',   detail: 'SEV-SNP attestation',     color: 'text-verdigris-deep' },
+  { name: 'NVIDIA NemoClaw',   detail: 'Secure agent sandbox',     color: 'text-verdigris-deep' },
   { name: 'Stripe PaymentIntent', detail: 'verify-then-capture', color: 'text-copper' },
-  { name: 'Nous Hermes',       detail: 'inference runtime',         color: 'text-verdigris' },
   { name: 'Hermes Agent',      detail: 'agent runtime',             color: 'text-moss' },
 ];
 
@@ -40,7 +39,7 @@ const pillars = [
         <p class="mt-6 text-body-sm text-bg/70 max-w-md">
           The broker for attested agent execution. Four pillars —
           attestation, security, sandboxing, payment — enforced by
-          hardware and by Stripe, not by the operator.
+          hardware.
         </p>
         <p class="mt-8 text-caption text-bg/50 font-mono uppercase tracking-widest">
           Open source · MIT
@@ -83,15 +82,6 @@ const pillars = [
 
     <!-- Resources strip -->
     <div class="mt-20 pt-10 border-t border-bg/15 grid grid-cols-2 sm:grid-cols-4 gap-4 text-caption">
-      <a href={`${base}AGENT.md`} class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a>
-      <a
-        href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
-        class="text-bg/85 hover:text-copper transition-colors"
-      >Protocol spec</a>
-      <a
-        href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
-        class="text-bg/85 hover:text-copper transition-colors"
-      >Security audit</a>
       <a
         href="https://github.com/codepilots/tee-broker-pattern"
         class="text-bg/85 hover:text-copper transition-colors"
