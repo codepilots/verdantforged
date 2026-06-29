@@ -1,116 +1,49 @@
 ---
 /**
  * index.astro — VerdantForged landing page
- * Apple-clean, scroll-driven single-page. 9 sections:
- *   Hero · Problem · Solution · HowItWorks · Demo · Security · SkillShowcase · BuiltOn · TryInAgent · Footer
+ * Apple-clean, scroll-driven single-page. 6 sections, broker-as-product:
+ *   Hero · Pillars · HowItWorks · Security (deep dive) · Demo · TryInAgent · Footer
  *
- * Pitch axis: three sponsors stacked end-to-end.
- *   NVIDIA NemoClaw (attestation) + Stripe x402/MPP (payments) + Nous Research (inference + Hermes Agent)
- *
- * The skill showcase section positions Nous inference as the RUNTIME inside the
- * sandbox, not as the showcase skill itself. Code-review-attested is the first
- * sandbox; future sandboxes can swap the model or the skill freely.
+ * Pitch axis: the broker is the product, the four pillars (Attestation,
+ * Security, Sandboxing, Payment) are the pitch. The marketplace framing
+ * (Provider / Requester / TrustLoop) was removed in the 2026-06-29 pivot.
+ * The 3-agent animation (TrustLoop.astro), skill marketplace, and in-browser
+ * Pyodide splash were dropped at the same time.
  */
 import BaseLayout   from '~/layouts/BaseLayout.astro';
 import Hero         from '~/components/Hero.astro';
-import TrustLoop    from '~/components/TrustLoop.astro';
+import Pillars      from '~/components/Pillars.astro';
 import HowItWorks   from '~/components/HowItWorks.astro';
-import DemoEmbed    from '~/components/DemoEmbed.astro';
 import SecurityTable from '~/components/SecurityTable.astro';
-import SkillShowcase from '~/components/SkillShowcase.astro';
+import DemoEmbed    from '~/components/DemoEmbed.astro';
 import TryInAgent   from '~/components/TryInAgent.astro';
 import Footer       from '~/components/Footer.astro';
 ---
 
 <BaseLayout
-  title="VerdantForged — A sandbox marketplace for agents. Three agents, one attested enclave, pay only for what you use."
-  description="A peer-to-peer sandbox marketplace. Skill Provider publishes a configuration, Requester pays via Stripe x402 or MPP, Broker deploys inside an NVIDIA NemoClaw SEV-SNP enclave running Nous Hermes inference. Three sponsors, end to end."
+  title="VerdantForged — The broker for attested agent execution. SEV-SNP enclaves, end-to-end encryption, fuel-limited sandboxing, Stripe-held escrow."
+  description="VerdantForged is the broker that runs your agent inside a hardware-attested NemoClaw SEV-SNP enclave. Four pillars: attestation, security, sandboxing, payment. Funds release on signed enclave teardown, refund automatically on failure."
 >
   <main>
     <Hero />
 
-    <!-- Problem -->
-    <section id="problem" class="vf-container section" aria-labelledby="problem-heading">
-      <p class="vf-eyebrow">Today</p>
-      <h2 id="problem-heading" class="vf-heading-section mt-6 max-w-4xl">
-        Agents can't safely run on each other's behalf.
-      </h2>
-      <div class="mt-16 grid grid-cols-1 lg:grid-cols-2 gap-12 max-w-5xl">
-        <div class="vf-card">
-          <p class="vf-eyebrow text-ink-soft">Today</p>
-          <ul class="mt-6 space-y-4 text-body text-ink-soft">
-            <li class="flex gap-3"><span class="text-copper-deep shrink-0 mt-1">✕</span> Operator can read your skill</li>
-            <li class="flex gap-3"><span class="text-copper-deep shrink-0 mt-1">✕</span> Operator can read requester data</li>
-            <li class="flex gap-3"><span class="text-copper-deep shrink-0 mt-1">✕</span> Pay before or after execution</li>
-            <li class="flex gap-3"><span class="text-copper-deep shrink-0 mt-1">✕</span> Trust the operator</li>
-            <li class="flex gap-3"><span class="text-copper-deep shrink-0 mt-1">✕</span> Single point of failure</li>
-          </ul>
-        </div>
-        <div class="vf-card border-verdigris/40">
-          <p class="vf-eyebrow text-verdigris-deep">With VerdantForged</p>
-          <ul class="mt-6 space-y-4 text-body text-ink">
-            <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Encrypted to enclave key</li>
-            <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Encrypted to enclave key</li>
-            <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Pay only for verified sandbox lifetime</li>
-            <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Trust the silicon</li>
-            <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Three independent parties</li>
-          </ul>
-        </div>
-      </div>
-    </section>
+    <!-- Four pillars — the centerpiece -->
+    <Pillars />
 
-    <TrustLoop />
+    <!-- 5-step protocol walkthrough -->
     <HowItWorks />
-    <DemoEmbed />
+
+    <!-- Security deep dive — primitives, validation, attestation checks -->
     <SecurityTable />
 
-    <SkillShowcase />
+    <!-- Live demo — asciinema cast -->
+    <DemoEmbed />
 
-    <!-- Built on (text-only until brand kit audit) -->
-    <section id="built-on" class="vf-container section" aria-labelledby="built-on-heading">
-      <p class="vf-eyebrow">Stands on the shoulders of</p>
-      <h2 id="built-on-heading" class="vf-heading-section mt-6 max-w-4xl">
-        Three sponsors stacked end to end.
-      </h2>
-      <p class="vf-body-lead mt-8 max-w-2xl">
-        Each layer of the stack is owned and operated by a sponsor of this hackathon.
-        No bespoke payment rails. No single-vendor lock-in.
-      </p>
-
-      <div class="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">NVIDIA</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">NemoClaw</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            SEV-SNP attestation. Enclave isolation. Default-DENY network egress.
-            The hardware root of every security guarantee.
-          </p>
-        </div>
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Stripe</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">x402 + MPP</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            x402 (Base USDC) and MPP (Solana USDC, Tempo, Stripe cards via Shared Payment Tokens).
-            Payment releases only on verified sandbox teardown.
-          </p>
-        </div>
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Nous Research</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Hermes</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            Hermes-4 inference models run inside every sandbox. Hermes Agent
-            orchestrates the skill. Open weights, open tooling.
-          </p>
-        </div>
-      </div>
-    </section>
-
+    <!-- Install CTA -->
     <TryInAgent />
   </main>
 
   <Footer />
-
-  <!-- Browser agent now lives at /agent/ — full-page takeover instead of modal. -->
 </BaseLayout>
 
 <script>
@@ -128,4 +61,18 @@ import Footer       from '~/components/Footer.astro';
   setTimeout(() => {
     document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
   }, 50);
+
+  // Lenis smooth scroll — wraps native scroll with momentum. Respects prefers-reduced-motion.
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!prefersReducedMotion && (window as any).Lenis) {
+    const lenis = new (window as any).Lenis({
+      duration: 1.2,
+      easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    });
+    function raf(time: number) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+  }
 </script>

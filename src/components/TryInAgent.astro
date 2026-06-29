@@ -1,51 +1,56 @@
 ---
 /**
- * TryInAgent — the meta-pitch CTA, three entry points.
+ * TryInAgent — the install CTA, three entry points.
  *
- *   A. Try in browser  ← dumb-client demo: 0 LLM in browser, 3 sponsor panels
- *   B. Paste prompt    ← for users with their own Hermes install
- *   C. Direct download ← AGENT.md
+ *   A. Read the spec + audit    ← primary path for reviewers
+ *   B. Paste prompt             ← for users with their own Hermes install
+ *   C. Direct download          ← AGENT.md
  *
- * Note: the old "Pyodide · ≈ 20 MB · runs locally" copy is gone.
- * The new copy reflects that the browser does NO inference — that's
- * the whole point of the dumb-agent narrative.
+ * The Pyodide / "Try in browser" path was removed with the marketplace
+ * pivot (2026-06-29). The broker is the product; install-on-your-own-machine
+ * is the right path for that.
  */
 
-const hermesPrompt = `Install the VerdantForged skill from https://verdantforged.pages.dev/AGENT.md and walk me through what it does.`;
+const hermesPrompt = `Install the VerdantForged broker from https://verdantforged.pages.dev/AGENT.md and walk me through the four pillars.`;
 ---
 
 <section id="try" class="vf-container section" aria-labelledby="try-heading">
-  <p class="vf-eyebrow">Install the skill</p>
+  <p class="vf-eyebrow">Run the broker</p>
   <h2 id="try-heading" class="vf-heading-section mt-6 max-w-4xl">
-    Three ways to try VerdantForged.
+    Three ways to install it.
   </h2>
   <p class="vf-body-lead mt-8 max-w-2xl">
-    No signup. No API key. No vendor lock-in. Pick the path that matches how
-    you already work.
+    No signup. No API key. No vendor lock-in. Pick the path that matches
+    how you already work.
   </p>
 
   <div class="mt-20 max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- A: Try in browser (dumb client) -->
+    <!-- A: Spec + audit -->
     <div class="vf-card relative border-verdigris/40">
-      <span class="vf-eyebrow absolute top-6 right-6 text-verdigris-deep">Browser</span>
+      <span class="vf-eyebrow absolute top-6 right-6 text-verdigris-deep">Start here</span>
       <h3 class="text-display-sm font-display font-semibold text-ink">
-        Try the demo
+        Read the spec + audit
       </h3>
       <p class="text-body text-ink-soft mt-4">
-        A dumb client: just a textarea. The broker does the planning, attestation,
-        and settlement server-side, surfaced live across three sponsor panels.
+        The protocol is the source of truth, the audit is the receipt. Read
+        both — the audit lists what's tested and what's simulated.
       </p>
-      <a
-        href={`${import.meta.env.BASE_URL}/agent/`}
-        class="vf-button mt-8 w-full justify-center"
-      >
-        Open the demo
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </a>
+      <div class="mt-8 flex flex-col gap-3">
+        <a
+          href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
+          class="vf-button w-full justify-center"
+        >
+          Open SPEC.md
+        </a>
+        <a
+          href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+          class="vf-button-ghost w-full justify-center"
+        >
+          Open SECURITY_AUDIT.md
+        </a>
+      </div>
       <p class="text-caption text-ink-soft mt-4 text-center font-mono">
-        no LLM · ≈ 22 KB · works on any device
+        51/51 tests pass · 2,080 LoC audited
       </p>
     </div>
 
@@ -55,8 +60,8 @@ const hermesPrompt = `Install the VerdantForged skill from https://verdantforged
         Paste into chat
       </h3>
       <p class="text-body text-ink-soft mt-4">
-        Copy this prompt into your Hermes chat. The agent will fetch AGENT.md
-        and walk through the protocol.
+        Copy this prompt into your Hermes chat. The agent will fetch
+        AGENT.md and walk through the four pillars.
       </p>
 
       <div class="mt-6 relative">
@@ -65,7 +70,7 @@ const hermesPrompt = `Install the VerdantForged skill from https://verdantforged
           readonly
           rows="3"
           class="w-full p-4 bg-bark text-bg font-mono text-body-sm rounded-lg resize-none focus:outline-none"
-          aria-label="Hermes prompt to install the VerdantForged skill"
+          aria-label="Hermes prompt to install the VerdantForged broker"
         >{hermesPrompt}</textarea>
         <button
           type="button"
@@ -83,11 +88,11 @@ const hermesPrompt = `Install the VerdantForged skill from https://verdantforged
         Direct download
       </h3>
       <p class="text-body text-ink-soft mt-4">
-        For users with their own agent runtime. Right-click → Save Link As, or
-        point your crawler at it.
+        For users with their own agent runtime. Right-click → Save Link As,
+        or point your crawler at it.
       </p>
       <a
-        href={`${import.meta.env.BASE_URL}/AGENT.md`}
+        href="/AGENT.md"
         download
         class="vf-button mt-8 w-full justify-center"
       >
@@ -97,7 +102,7 @@ const hermesPrompt = `Install the VerdantForged skill from https://verdantforged
         Download AGENT.md
       </a>
       <p class="text-caption text-ink-soft mt-4 text-center">
-        7 KB · plain markdown · no dependencies
+        plain markdown · no dependencies
       </p>
     </div>
   </div>

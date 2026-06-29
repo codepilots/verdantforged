@@ -1,0 +1,220 @@
+---
+/**
+ * Pillars — the four engineering pillars of the broker.
+ *
+ * Each pillar: eyebrow (PILLAR 0X), one-line promise, a 2-3 line body, a
+ * "what stops what" mini-table, and a small inline diagram. Layout is a
+ * 2x2 grid on desktop, stacked on mobile. The pillars section is the
+ * centerpiece of the site — it IS the pitch.
+ *
+ * Pillar order (locked 2026-06-29): Attestation → Security → Sandboxing → Payment.
+ * The order tells the story: silicon identity first, then crypto, then
+ * execution isolation, then the payment rail that ties it together.
+ */
+
+interface AttackRow {
+  attack: string;
+  fix: string;
+}
+
+interface Pillar {
+  n: string;
+  eyebrow: string;
+  headline: string;
+  body: string;
+  // For the inline SVG diagram
+  diagram: 'attestation' | 'security' | 'sandboxing' | 'payment';
+  attacks: AttackRow[];
+  // Where the audit evidence lives, shown as a footer line
+  evidence: string;
+}
+
+const pillars: Pillar[] = [
+  {
+    n: '01',
+    eyebrow: 'Pillar 01 · Attestation',
+    headline: 'The enclave is the only thing you trust.',
+    body: 'Every workload runs inside a freshly booted NemoClaw SEV-SNP enclave. The chip itself signs the measurement — a hash of the initial register state plus the loaded runtime. The requester pulls the signed report, verifies the cert chain against the AMD root, and rejects the work if the measurement doesn\'t match the approved binary.',
+    diagram: 'attestation',
+    attacks: [
+      { attack: 'Operator swaps the runtime',  fix: 'Measurement mismatch — the report is signed by silicon the operator doesn\'t control' },
+      { attack: 'Replay of an old attestation', fix: 'Requester issues a nonce; report is bound to nonce + measurement' },
+      { attack: 'Stale TCB / revoked chip',     fix: 'TCB version check; production path includes OCSP/CRL' },
+    ],
+    evidence: '5 independent attestation checks, all unit-tested — tee-broker-pattern/SECURITY_AUDIT.md §4.3',
+  },
+  {
+    n: '02',
+    eyebrow: 'Pillar 02 · Security',
+    headline: 'Encryption to silicon, not to policy.',
+    body: 'The broker never holds plaintext. Skill source and requester data are encrypted to the enclave\'s public key before they leave the requester\'s machine. The only place decryption happens is inside the measured enclave, where the private key exists transiently for the lifetime of that execution. The result is encrypted to the requester\'s pubkey on the way out.',
+    diagram: 'security',
+    attacks: [
+      { attack: 'Broker reads the skill',         fix: 'Encrypted to enclave key; no debug interface in measured state' },
+      { attack: 'Broker reads requester data',    fix: 'Encrypted to enclave key; same mechanism' },
+      { attack: 'Broker copies the skill',        fix: 'Enclave is ephemeral; no persistent storage; measured boot' },
+      { attack: 'Broker fabricates a receipt',    fix: 'Receipt requires enclave signature; signature requires attested state' },
+    ],
+    evidence: 'ECIES (X25519 + AES-256-GCM) + Ed25519 — 6 properties per primitive, all unit-tested',
+  },
+  {
+    n: '03',
+    eyebrow: 'Pillar 03 · Sandboxing',
+    headline: 'A fresh, fuel-limited enclave for every workload.',
+    body: 'The broker provisions a new enclave per execution. There is no shared state between workloads, no host filesystem the WASM can touch, no syscalls the runtime exposes. The execution has a fuel budget (instruction count), a wall-clock cap, and a memory cap — all enforced by the runtime, all measured into the attestation.',
+    diagram: 'sandboxing',
+    attacks: [
+      { attack: 'Skill runs forever (DoS)',     fix: 'Fuel limit (≤100M instructions) + wall-clock timeout (≤120s)' },
+      { attack: 'Skill exfiltrates via network', fix: 'OpenShell default-DENY; only api.stripe.com:443 in the allowlist' },
+      { attack: 'Skill reads host filesystem',   fix: 'No host imports exposed to the WASM module' },
+      { attack: 'Skill overflows output buffer', fix: '1 MiB output cap, checked before write' },
+    ],
+    evidence: 'Bump allocator + MAX_OUTPUT_SIZE + fuel/fuel-limits validation — tee-broker-pattern/SECURITY_AUDIT.md §5',
+  },
+  {
+    n: '04',
+    eyebrow: 'Pillar 04 · Payment',
+    headline: 'The enclave has to sign before the funds move.',
+    body: 'Payment is held in a Stripe MPP escrow at session open. The escrow is keyed to the attestation measurement: if the wrong enclave reports back, the funds don\'t move. On signed teardown, MPP releases to the model/skill provider. On failure, timeout, or attestation mismatch, MPP refunds the requester — atomically, automatically.',
+    diagram: 'payment',
+    attacks: [
+      { attack: 'Operator pockets the escrow',          fix: 'Funds are in Stripe MPP, not in the operator\'s account' },
+      { attack: 'Operator releases before work ends',   fix: 'MPP release requires a signed teardown receipt from the attested enclave' },
+      { attack: 'Provider claims more fuel than burned', fix: 'Receipt is signed by the enclave; fuel counter is in the receipt' },
+      { attack: 'Requester denies a successful run',    fix: 'Receipt is signed by the enclave — verifiable independent of the broker' },
+    ],
+    evidence: 'MPP lifecycle bound to attestation — production release triggers off signed teardown only',
+  },
+];
+---
+
+<section
+  id="pillars"
+  class="vf-container section"
+  aria-labelledby="pillars-heading"
+>
+  <p class="vf-eyebrow">The four pillars</p>
+  <h2 id="pillars-heading" class="vf-heading-section mt-6 max-w-4xl">
+    What the broker actually delivers.
+  </h2>
+  <p class="vf-body-lead mt-8 max-w-2xl">
+    The guarantees below are made by the hardware (SEV-SNP), the crypto (X25519
+    + AES-256-GCM), the runtime (fuel-limited, default-DENY), and the payment
+    rail (Stripe MPP). Not by the operator running the broker.
+  </p>
+
+  <div class="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl">
+    {pillars.map((p) => (
+      <article class="vf-card flex flex-col" aria-labelledby={`pillar-${p.n}-heading`}>
+        <!-- Pillar header: number + eyebrow -->
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="vf-eyebrow text-ink-soft">{p.eyebrow}</p>
+            <h3
+              id={`pillar-${p.n}-heading`}
+              class="mt-3 text-display-sm font-display font-semibold text-ink vf-text-balance"
+            >
+              {p.headline}
+            </h3>
+          </div>
+          <!-- Diagram: small inline SVG, kept minimal -->
+          <div class="shrink-0 w-16 h-16" aria-hidden="true">
+            <svg viewBox="0 0 64 64" class="w-full h-full">
+              {p.diagram === 'attestation' && (
+                <g>
+                  <rect x="16" y="10" width="32" height="44" rx="3" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="32" y="26" text-anchor="middle" font-size="6" font-family="JetBrains Mono" fill="#2d6a4f">SEV</text>
+                  <text x="32" y="34" text-anchor="middle" font-size="6" font-family="JetBrains Mono" fill="#2d6a4f">SNP</text>
+                  <line x1="20" y1="42" x2="44" y2="42" stroke="#b87333" stroke-width="1.5"/>
+                  <text x="32" y="50" text-anchor="middle" font-size="5" font-family="JetBrains Mono" fill="#b87333">0x9af…</text>
+                  <circle cx="32" cy="32" r="20" fill="none" stroke="#2d6a4f" stroke-width="0.8" opacity="0.4">
+                    <animate attributeName="r" values="18;26;18" dur="3s" repeatCount="indefinite"/>
+                  </circle>
+                </g>
+              )}
+              {p.diagram === 'security' && (
+                <g>
+                  <rect x="6" y="22" width="22" height="20" rx="2" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <rect x="36" y="22" width="22" height="20" rx="2" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="17" y="35" text-anchor="middle" font-size="6" font-family="JetBrains Mono" fill="#3b2e23">E(key)</text>
+                  <text x="47" y="35" text-anchor="middle" font-size="6" font-family="JetBrains Mono" fill="#3b2e23">E(data)</text>
+                  <path d="M 28 32 L 36 32" stroke="#b87333" stroke-width="1.5"/>
+                  <path d="M 28 35 L 36 35" stroke="#b87333" stroke-width="1.5" stroke-dasharray="2 2"/>
+                  <text x="32" y="14" text-anchor="middle" font-size="5" font-family="JetBrains Mono" fill="#5fa39a">enclave</text>
+                </g>
+              )}
+              {p.diagram === 'sandboxing' && (
+                <g>
+                  <rect x="8" y="8" width="48" height="48" rx="4" fill="none" stroke="#2d6a4f" stroke-width="1.5"/>
+                  <text x="32" y="24" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#2d6a4f" font-weight="600">WASM</text>
+                  <line x1="14" y1="30" x2="50" y2="30" stroke="#5fa39a" stroke-width="0.5" opacity="0.5"/>
+                  <line x1="14" y1="44" x2="50" y2="44" stroke="#5fa39a" stroke-width="0.5" opacity="0.5"/>
+                  <!-- fuel meter -->
+                  <rect x="14" y="36" width="36" height="4" rx="1" fill="none" stroke="#3b2e23" stroke-width="0.8"/>
+                  <rect x="14" y="36" width="20" height="4" rx="1" fill="#b87333">
+                    <animate attributeName="width" values="0;36;0" dur="4s" repeatCount="indefinite"/>
+                  </rect>
+                  <text x="32" y="51" text-anchor="middle" font-size="4" font-family="JetBrains Mono" fill="#4a4a45">fuel</text>
+                </g>
+              )}
+              {p.diagram === 'payment' && (
+                <g>
+                  <circle cx="14" cy="32" r="8" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="14" y="35" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">$</text>
+                  <circle cx="50" cy="32" r="8" fill="none" stroke="#2d6a4f" stroke-width="1.5"/>
+                  <text x="50" y="35" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#2d6a4f">$</text>
+                  <!-- escrow lock -->
+                  <rect x="26" y="20" width="12" height="14" rx="1" fill="none" stroke="#b87333" stroke-width="1.5"/>
+                  <path d="M 28 20 V 17 a 4 4 0 0 1 8 0 V 20" fill="none" stroke="#b87333" stroke-width="1.5"/>
+                  <text x="32" y="30" text-anchor="middle" font-size="6" font-family="JetBrains Mono" fill="#b87333">MPP</text>
+                  <!-- refund arrow -->
+                  <path d="M 22 42 Q 32 50 42 42" fill="none" stroke="#5fa39a" stroke-width="1" stroke-dasharray="2 2"/>
+                  <text x="32" y="56" text-anchor="middle" font-size="4" font-family="JetBrains Mono" fill="#5fa39a">refund</text>
+                </g>
+              )}
+            </svg>
+          </div>
+        </div>
+
+        <!-- Pillar body -->
+        <p class="mt-6 text-body text-ink-soft vf-text-pretty max-w-prose-vf">
+          {p.body}
+        </p>
+
+        <!-- "What stops what" mini-table -->
+        <div class="mt-8 border-t border-moss/30 pt-6">
+          <p class="vf-eyebrow text-ink-soft">What stops what</p>
+          <dl class="mt-4 space-y-3">
+            {p.attacks.map((row) => (
+              <div class="grid grid-cols-1 sm:grid-cols-5 gap-x-4 gap-y-1">
+                <dt class="sm:col-span-2 text-body-sm text-ink vf-text-pretty">
+                  {row.attack}
+                </dt>
+                <dd class="sm:col-span-3 text-body-sm text-ink-soft vf-text-pretty">
+                  <span class="text-verdigris-deep mr-2" aria-hidden="true">✓</span>
+                  {row.fix}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <!-- Evidence footer -->
+        <p class="mt-6 text-caption text-ink-soft font-mono leading-relaxed border-t border-moss/30 pt-4">
+          <span class="text-copper-deep">evidence — </span>
+          {p.evidence}
+        </p>
+      </article>
+    ))}
+  </div>
+
+  <!-- Audit footnote -->
+  <p class="mt-16 max-w-2xl mx-auto text-center text-body text-ink-soft">
+    The broker is the marketplace, the sandbox, and the wallet.
+    The guarantees are made by
+    <span class="text-verdigris-deep">NVIDIA NemoClaw</span>,
+    <span class="text-copper-deep">Stripe MPP</span>, and
+    <span class="text-ink">the protocol itself</span> —
+    not by us.
+  </p>
+</section>

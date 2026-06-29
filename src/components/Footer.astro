@@ -1,13 +1,22 @@
 ---
 /**
- * Footer — restrained, bark-toned, with the sponsor credits as text only.
- * No logos (pending brand kit audit — see PROPOSAL.md §Open Decisions).
+ * Footer — broker-as-product voice.
  *
- * The "Stands on" section names all four Stripe machine-payments rails that
- * apply to VerdantForged, so sponsors see their primitives being used.
+ * The footer is the last thing the user reads. It restates the four
+ * pillars in one line, names the audit document, and keeps the sponsor
+ * credits as text only (pending brand kit audit).
  */
 
 const year = new Date().getFullYear();
+
+const stack = [
+  { name: 'NVIDIA NemoClaw',   detail: 'SEV-SNP attestation',      color: 'text-verdigris-deep' },
+  { name: 'Stripe MPP',        detail: 'escrow + teardown release', color: 'text-copper' },
+  { name: 'Stripe x402',       detail: 'Base USDC, per-call',       color: 'text-copper' },
+  { name: 'Nous Hermes',       detail: 'inference runtime',         color: 'text-verdigris' },
+  { name: 'Hermes Agent',      detail: 'agent runtime',             color: 'text-moss' },
+  { name: 'Nostr',             detail: 'discovery + reputation',    color: 'text-bg/40' },
+];
 ---
 
 <footer class="bg-bark text-bg/85 mt-section">
@@ -19,8 +28,9 @@ const year = new Date().getFullYear();
           VerdantForged
         </div>
         <p class="mt-6 text-body-sm text-bg/70 max-w-md">
-          A sandbox marketplace for agents. Three agents, one attested enclave,
-          pay only for the seconds the sandbox was alive.
+          The broker for attested agent execution. Four pillars —
+          attestation, security, sandboxing, payment — enforced by
+          hardware and by Stripe, not by the operator.
         </p>
         <p class="mt-8 text-caption text-bg/50 font-mono uppercase tracking-widest">
           Open source · MIT
@@ -31,56 +41,13 @@ const year = new Date().getFullYear();
       <div class="md:col-span-4">
         <p class="vf-eyebrow text-bg/50">Stands on</p>
         <ul class="mt-6 space-y-3 text-body-sm">
-          <li>
-            <span class="text-verdigris-deep">●</span>
-            <span class="ml-3">NVIDIA NemoClaw</span>
-            <span class="ml-2 text-bg/50 text-caption">SEV-SNP attestation</span>
-          </li>
-          <li>
-            <span class="text-copper">●</span>
-            <span class="ml-3">Stripe x402</span>
-            <span class="ml-2 text-bg/50 text-caption">Base USDC</span>
-          </li>
-          <li>
-            <span class="text-copper">●</span>
-            <span class="ml-3">Stripe MPP</span>
-            <span class="ml-2 text-bg/50 text-caption">Solana · Tempo · SPT</span>
-          </li>
-          <li>
-            <span class="text-verdigris">●</span>
-            <span class="ml-3">Nous Hermes</span>
-            <span class="ml-2 text-bg/50 text-caption">inference runtime</span>
-          </li>
-          <li>
-            <span class="text-moss">●</span>
-            <span class="ml-3">Hermes Agent</span>
-            <span class="ml-2 text-bg/50 text-caption">agent runtime</span>
-          </li>
-          <li>
-            <span class="text-bg/40">●</span>
-            <span class="ml-3">Nostr</span>
-            <span class="ml-2 text-bg/50 text-caption">discovery + reputation</span>
-          </li>
-          <li>
-            <span class="text-bg/40">●</span>
-            <a
-              href="https://github.com/jakobhoeg/browser-ai"
-              rel="noopener"
-              class="ml-3 text-bg/85 hover:text-copper transition-colors"
-              >browser-ai</a
-            >
-            <span class="ml-2 text-bg/50 text-caption">JSON tool-call parser · by Jakob Hoeg</span>
-          </li>
-          <li>
-            <span class="text-bg/40">●</span>
-            <a
-              href="https://github.com/mlc-ai/web-llm"
-              rel="noopener"
-              class="ml-3 text-bg/85 hover:text-copper transition-colors"
-              >WebLLM</a
-            >
-            <span class="ml-2 text-bg/50 text-caption">in-browser LLM runtime · MLC-AI</span>
-          </li>
+          {stack.map((item) => (
+            <li>
+              <span class={item.color}>●</span>
+              <span class="ml-3">{item.name}</span>
+              <span class="ml-2 text-bg/50 text-caption">{item.detail}</span>
+            </li>
+          ))}
         </ul>
       </div>
 
@@ -88,11 +55,25 @@ const year = new Date().getFullYear();
       <div class="md:col-span-3">
         <p class="vf-eyebrow text-bg/50">Resources</p>
         <ul class="mt-6 space-y-3 text-body-sm">
-          <li><a href={`${import.meta.env.BASE_URL}/AGENT.md`} class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
-          <li><a href="https://github.com/codepilots/verdantforged" class="text-bg/85 hover:text-copper transition-colors">Source code</a></li>
-          <li><a href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md" class="text-bg/85 hover:text-copper transition-colors">Protocol spec</a></li>
-          <li><a href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md" class="text-bg/85 hover:text-copper transition-colors">Security audit</a></li>
-          <li><a href={`${import.meta.env.BASE_URL}/agent/`} class="text-bg/85 hover:text-copper transition-colors">Try in browser</a></li>
+          <li><a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
+          <li>
+            <a
+              href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
+              class="text-bg/85 hover:text-copper transition-colors"
+            >Protocol spec</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+              class="text-bg/85 hover:text-copper transition-colors"
+            >Security audit</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/codepilots/tee-broker-pattern"
+              class="text-bg/85 hover:text-copper transition-colors"
+            >Source code</a>
+          </li>
         </ul>
       </div>
     </div>

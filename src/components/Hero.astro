@@ -1,20 +1,20 @@
 ---
 /**
- * Hero — TYPE-DRIVEN (LOCKED 2026-06-19)
+ * Hero — TYPE-DRIVEN (broker-as-product, pivoted 2026-06-29)
  * Apple keynote cadence. No imagery. Words fade up sequentially.
- * The hero says ONE thing: three agents, one enclave, your secrets stay yours.
+ * The hero says ONE thing: this is the broker — four pillars, attested end-to-end.
  */
 
 const lines = [
-  { text: 'Three agents.', emphasis: false },
-  { text: 'One attested enclave.', emphasis: false },
-  { text: 'Pay only for the sandbox you use.', emphasis: true },
+  { text: 'The broker that runs your agent', emphasis: false },
+  { text: 'inside a hardware-attested enclave.', emphasis: false },
+  { text: 'Attestation. Security. Sandboxing. Payment.', emphasis: true },
 ];
 ---
 
 <section
   class="relative min-h-screen flex flex-col justify-center px-6 sm:px-8 lg:px-12 py-30"
-  aria-label="VerdantForged — three agents, one attested enclave"
+  aria-label="VerdantForged — the broker for attested agent execution"
 >
   <div class="max-w-wide mx-auto w-full">
     <!-- Eyebrow -->
@@ -22,7 +22,7 @@ const lines = [
       class="vf-eyebrow vf-reveal"
       data-reveal-delay="0"
     >
-      A marketplace for agents
+      A TEE broker for agent workloads
     </p>
 
     <!-- Type-driven headline, lines fade up sequentially -->
@@ -44,7 +44,12 @@ const lines = [
       data-reveal-delay="900"
       style="transition-delay: 900ms;"
     >
-      VerdantForged is a peer-to-peer marketplace where a Skill Provider publishes a sandbox configuration, a Requester pays to provision it, and an attested Environment Broker deploys and runs it inside an NVIDIA NemoClaw SEV-SNP enclave — using Nous inference as the runtime. Your skill stays your skill. Their data stays their data. You pay only for the seconds the sandbox was alive.
+      VerdantForged is the runtime that brokers attested execution of agent
+      workloads. You hand it a manifest — a model, a fuel budget, a max lifetime,
+      a payment escrow — and it deploys the work inside a fresh NVIDIA NemoClaw
+      SEV-SNP enclave, with Stripe holding the funds until the enclave confirms
+      teardown. Your model and your data are encrypted to silicon, not to a
+      vendor's policy.
     </p>
 
     <!-- CTAs -->
@@ -53,20 +58,20 @@ const lines = [
       data-reveal-delay="1100"
       style="transition-delay: 1100ms;"
     >
-      <a href="#how-it-works" class="vf-button">
-        See the protocol
+      <a href="#pillars" class="vf-button">
+        See the four pillars
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </a>
       <a
-        href={`${import.meta.env.BASE_URL}/agent/`}
-        class="vf-button"
+        href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+        class="vf-button-ghost"
       >
-        Try it in your browser
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        Read the security audit
+      </a>
+      <a href="#try" class="vf-button-ghost">
+        Try in your agent
       </a>
     </div>
 

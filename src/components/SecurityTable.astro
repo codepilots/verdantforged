@@ -1,59 +1,184 @@
 ---
 /**
- * SecurityTable — the 7-row guarantees table
- * Reads directly from the SPEC.md security model. Apple-style alternating row backgrounds.
+ * SecurityTable — the deep-dive on the security pillar.
+ *
+ * The Pillars section above gives the 30-second view. This table is the
+ * full attack/defense matrix, grounded in the SECURITY_AUDIT.md. The
+ * audience: a reviewer who wants the cryptographic primitives and the
+ * specific test names, not just the marketing version.
  */
 
-const rows = [
-  { attack: 'Broker reads your skill source',            fix: 'Encrypted to enclave key; no debug interface' },
-  { attack: 'Broker reads requester data',                fix: 'Encrypted to enclave key; same mechanism' },
-  { attack: 'Broker copies your skill for later',         fix: 'Enclave is ephemeral; no persistent storage; measured boot' },
-  { attack: 'Broker sends the result to someone else',    fix: 'Result encrypted to requester\'s pubkey; enclave has no other key' },
-  { attack: 'Broker runs different code than you approved', fix: 'Attestation measurement = hash of approved binary' },
-  { attack: 'Broker sends results anywhere except the requester', fix: 'OpenShell default-DENY policy; only api.stripe.com:443 allowed' },
-  { attack: 'Broker stalls indefinitely',                 fix: 'Fuel limit (instruction count) + wall-clock timeout' },
+const primitives = [
+  {
+    layer: 'Key exchange',
+    algorithm: 'X25519 ECDH, ephemeral',
+    why: 'Forward secrecy per execution — compromising one long-term key does not decrypt past traffic',
+    test: 'test_ecies_roundtrip, test_wrong_key_fails, test_same_plaintext_different_ciphertexts',
+  },
+  {
+    layer: 'AEAD',
+    algorithm: 'AES-256-GCM',
+    why: 'Confidentiality + integrity in one primitive; ciphertext is self-authenticating',
+    test: 'test_aes_gcm_tamper_detection, test_nonce_uniqueness',
+  },
+  {
+    layer: 'KDF',
+    algorithm: 'HKDF-SHA256 with context binding',
+    why: 'Context string separates skill / data / result keys — no key reuse across channels',
+    test: 'test_wrong_context_fails, test_hkdf_rfc5869_vector',
+  },
+  {
+    layer: 'Manifest signature',
+    algorithm: 'Ed25519 (RFC 8032)',
+    why: 'Compact (64-byte) signatures, constant-time verification, manifest hash excludes signature (no self-reference)',
+    test: 'test_manifest_signature_roundtrip, test_tampered_manifest_fails',
+  },
+  {
+    layer: 'Ed25519 → X25519',
+    algorithm: 'curve25519_dalek birational map',
+    why: 'One-way conversion: requester\'s Ed25519 verify key becomes the result-encryption pubkey, no extra key material',
+    test: 'test_ed25519_to_x25519_conversion_produces_32_bytes',
+  },
+  {
+    layer: 'Hash',
+    algorithm: 'SHA-256',
+    why: 'NIST standard; verified against the canonical "abc" test vector at startup',
+    test: 'test_sha256_known_vector',
+  },
+];
+
+const requestValidation = [
+  { check: 'skill_encrypted not empty',     detail: 'Rejects empty payload (replay/sanity)' },
+  { check: 'data_encrypted not empty',      detail: 'Rejects empty payload (replay/sanity)' },
+  { check: 'max_fuel > 0',                  detail: 'No infinite-fuel requests' },
+  { check: 'max_fuel ≤ 100M',               detail: 'Caps DoS surface' },
+  { check: 'max_duration_ms > 0',           detail: 'No infinite-lifetime requests' },
+  { check: 'max_duration_ms ≤ 120s',        detail: 'Caps DoS surface' },
+  { check: 'mpp_escrow_id not empty',       detail: 'No unescrowed execution' },
+  { check: 'Payload size ≤ 10 MB',          detail: 'Caps bandwidth per execution' },
+];
+
+const attestationChecks = [
+  { check: 'Non-empty attestation',          detail: 'test_empty_attestation_fails' },
+  { check: 'Cert chain → AMD/Intel root',   detail: 'test_invalid_cert_chain_fails' },
+  { check: 'Measurement matches expected',  detail: 'test_measurement_mismatch_fails' },
+  { check: 'TCB version ≥ minimum',         detail: 'test_tcb_version_too_old_fails' },
+  { check: 'Policy hash matches',           detail: 'test_policy_hash_mismatch_fails' },
+  { check: 'Serialization roundtrip',       detail: 'test_attestation_serialization_roundtrip' },
 ];
 ---
 
-<section id="security" class="vf-container section" aria-labelledby="security-heading">
-  <p class="vf-eyebrow">What's actually enforced</p>
+<section
+  id="security"
+  class="vf-container section"
+  aria-labelledby="security-heading"
+>
+  <p class="vf-eyebrow">Security · deep dive</p>
   <h2 id="security-heading" class="vf-heading-section mt-6 max-w-4xl">
-    Trust the silicon, not the operator.
+    Every primitive is named. Every test is named.
   </h2>
   <p class="vf-body-lead mt-8 max-w-2xl">
-    Every guarantee below is enforced by the enclave or by Stripe MPP — not by
-    policy, not by goodwill, not by the marketplace operator.
+    The pillars section gives the 30-second pitch. This is the receipt: the
+    crypto stack, the input validation, the attestation checks — and the
+    specific test name that proves each one. The full audit document is
+    <a
+      href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+      class="vf-link"
+    >SECURITY_AUDIT.md</a>.
   </p>
 
-  <div class="mt-16 max-w-5xl mx-auto">
-    <table class="w-full text-left border-collapse">
-      <thead>
-        <tr class="border-b border-moss">
-          <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">
-            Attack
-          </th>
-          <th class="py-4 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">
-            What stops it
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, i) => (
-          <tr class={`border-b border-moss/30 ${i % 2 === 1 ? 'bg-moss/5' : ''}`}>
-            <td class="py-6 pr-6 text-body text-ink align-top vf-text-pretty">
-              {row.attack}
-            </td>
-            <td class="py-6 text-body text-ink-soft align-top vf-text-pretty">
-              {row.fix}
-            </td>
+  <!-- Cryptographic primitives -->
+  <div class="mt-20 max-w-5xl">
+    <h3 class="text-display-sm font-display font-semibold text-ink">
+      Cryptographic primitives
+    </h3>
+    <div class="mt-8 overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-moss">
+            <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Layer</th>
+            <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Algorithm</th>
+            <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Why</th>
+            <th class="py-4 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Test</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {primitives.map((row, i) => (
+            <tr class={`border-b border-moss/30 align-top ${i % 2 === 1 ? 'bg-moss/5' : ''}`}>
+              <td class="py-5 pr-6 text-body-sm text-ink font-mono whitespace-nowrap">{row.layer}</td>
+              <td class="py-5 pr-6 text-body-sm text-copper-deep font-mono whitespace-nowrap">{row.algorithm}</td>
+              <td class="py-5 pr-6 text-body-sm text-ink-soft vf-text-pretty">{row.why}</td>
+              <td class="py-5 text-caption text-ink-soft font-mono vf-text-pretty">{row.test}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   </div>
 
-  <p class="vf-body-lead mt-16 max-w-2xl mx-auto text-center">
-    VerdantForged is the marketplace. The guarantees are made by NVIDIA NemoClaw,
-    Stripe MPP, and the protocol itself — not by us.
-  </p>
+  <!-- ExecutionRequest validation -->
+  <div class="mt-24 max-w-5xl">
+    <h3 class="text-display-sm font-display font-semibold text-ink">
+      ExecutionRequest validation
+    </h3>
+    <p class="mt-4 text-body text-ink-soft max-w-prose-vf">
+      Every incoming request is checked against these constraints before the
+      enclave boots. Rejecting a request here is cheap; rejecting it after the
+      enclave is up wastes a sandbox.
+    </p>
+    <div class="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-3 max-w-4xl">
+      {requestValidation.map((row) => (
+        <div class="flex gap-3">
+          <span class="text-verdigris-deep shrink-0 mt-1" aria-hidden="true">✓</span>
+          <div>
+            <code class="text-body-sm text-ink font-mono">{row.check}</code>
+            <p class="text-caption text-ink-soft mt-1">{row.detail}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <!-- Attestation checks -->
+  <div class="mt-24 max-w-5xl">
+    <h3 class="text-display-sm font-display font-semibold text-ink">
+      Attestation verification
+    </h3>
+    <p class="mt-4 text-body text-ink-soft max-w-prose-vf">
+      Six checks run on every attestation report before the requester
+      hands over the encrypted payload. Any one failing aborts the session.
+    </p>
+    <div class="mt-8 overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-moss">
+            <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Check</th>
+            <th class="py-4 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Test name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {attestationChecks.map((row, i) => (
+            <tr class={`border-b border-moss/30 align-top ${i % 2 === 1 ? 'bg-moss/5' : ''}`}>
+              <td class="py-4 pr-6 text-body-sm text-ink">{row.check}</td>
+              <td class="py-4 text-body-sm text-copper-deep font-mono">{row.detail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mt-20 max-w-2xl mx-auto text-center">
+    <p class="vf-body-lead">
+      51/51 tests pass. Zero clippy warnings. Zero clippy errors. Two
+      <code class="font-mono text-copper-deep">unsafe</code> blocks, both
+      correctly annotated for the WASM FFI surface.
+    </p>
+    <p class="mt-6 text-caption text-ink-soft font-mono">
+      The submission simulates the WASM execution, the MPP release, and
+      the SEV-SNP attestation (mock provider). The protocol, the crypto,
+      and the test suite are real.
+    </p>
+  </div>
 </section>
