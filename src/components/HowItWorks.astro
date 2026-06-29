@@ -1,44 +1,57 @@
 ---
 /**
- * HowItWorks — 5-step protocol walkthrough
+ * HowItWorks — 5-step walkthrough that mirrors what the broker actually does.
  * Each step is a full-bleed section with a number, headline, body, and a small
  * SVG diagram. Steps alternate left/right on desktop for rhythm.
+ *
+ * Source-of-truth references in tee-broker-deploy/:
+ *   - submit_job / validate_submit (broker-daemon/daemon.py ~L2091)
+ *   - verify_payment_intent / capture_payment / refund_payment (~L201, L273, L425)
+ *   - discover   (returns attestation{tee_type, report, cert_chain, enclave_pubkey} ~L3168)
+ *   - build_job_envelope / execute_wasm_skill (worker/poller.py L1557)
+ *   - _finalize_job (~L3888) — capture on completed, refund on failed/timeout,
+ *     shortfall → awaiting_topup with `shortfall_cents`
+ *
+ * Same five-step structure as the previous copy; diagrams and copy now reflect
+ * Stripe PaymentIntent semantics (not "MPP escrow"), and Step 04 talks about
+ * SEV-SNP memory encryption + attested worker (no "no syscalls" claim — SEV-SNP
+ * doesn't strip syscalls, it encrypts VM memory + provides attestation only).
  */
 
 const steps = [
   {
     n: '01',
-    title: 'Agreement',
-    sub: 'P2P, off-chain',
-    body: 'The Skill Provider publishes a manifest — what the skill does, what fuel it needs, what attestation it requires. The Requester accepts, deposits the data hash, and creates an MPP escrow. No central party involved.',
-    diagram: 'manifest',
+    title: 'Submit',
+    sub: 'Stripe PaymentIntent',
+    body: 'Create a Stripe PaymentIntent on your side and POST /v1/jobs with stripe_pi_id plus your encrypted payload. The broker calls Stripe to confirm the PI is in requires_capture — funds reserved on your card, not yet captured. The broker earns nothing yet.',
+    diagram: 'submit',
   },
   {
     n: '02',
-    title: 'Attestation verification',
-    sub: 'Hardware-rooted',
-    body: 'The Requester pulls the Broker\'s attestation report from the enclave. Verifies the certificate chain against the AMD root. Confirms the measurement matches the approved skill-runner binary hash.',
+    title: 'Attestation',
+    sub: 'AMD SEV-SNP, hardware-rooted',
+    body: 'Pull /v1/discover and inspect attestation: tee_type, min_measurement, the 1184-byte signed SEV-SNP report, the VCEK/VLEK cert chain, and the enclave X25519 pubkey. The worker publishes its measurement at boot; file jobs wait for it before exposing upload URLs.',
     diagram: 'attestation',
   },
   {
     n: '03',
     title: 'Encrypted payload',
-    sub: 'End-to-end encrypted',
-    body: 'Requester sends encrypted skill, encrypted data, result pubkey, and escrow ID to the Broker. The Broker cannot decrypt anything until it\'s inside the attested enclave, where it has the only matching key.',
+    sub: 'X25519 + ChaCha20-Poly1305',
+    body: 'Encrypt skill and data to enclave_pubkey using x25519-hkdf-sha256-chacha20poly1305-v1. The broker only sees ciphertext — it never holds the decryption key. The envelope also carries your result_pubkey, requester_sig, the broker-asserted skill_hash, and the per-job ephemeral LLM token.',
     diagram: 'payload',
   },
   {
     n: '04',
     title: 'Enclave execution',
-    sub: 'Inside NemoClaw',
-    body: 'Decrypt skill and data. Verify skill hash matches the manifest. Execute with fuel limits and no syscalls. Encrypt the result to the requester\'s pubkey. Call MPP release. The only allowed network egress.',
+    sub: 'Attested m6a.xlarge, SEV-SNP',
+    body: 'The worker (an m6a.xlarge EC2 with SEV-SNP memory encryption + remote attestation) decrypts inside the attested VM, re-verifies skill_hash against the on-disk WASM binary, then runs via wasmtime with manifest-declared max_fuel and max_duration_ms — or calls the LLM through the broker proxy with a per-job token. Worker signs the result; the broker re-signs it independently.',
     diagram: 'execute',
   },
   {
     n: '05',
-    title: 'Result and payment',
-    sub: 'Released atomically',
-    body: 'Broker sends the encrypted result to the Requester. Requester decrypts locally. MPP releases payment to the Skill Provider. If execution fails or times out, escrow refunds the Requester automatically.',
+    title: 'Capture or refund',
+    sub: 'Stripe moves only the actual amount',
+    body: 'On completed, the broker calls Stripe to capture the actual cost (lease + tokens, padded to the per-currency minimum). Unused hold auto-refunds. On failed or timeout, the broker refunds the full hold. Underfunded runs pause into awaiting_topup with shortfall_cents and a topup window. Every transition is delivered to your webhook with a signed receipt.',
     diagram: 'payment',
   },
 ];
@@ -47,7 +60,7 @@ const steps = [
 <section id="how-it-works" class="vf-container section" aria-labelledby="how-heading">
   <p class="vf-eyebrow">Five steps</p>
   <h2 id="how-heading" class="vf-heading-section mt-6 max-w-4xl">
-    Agreement to payment, end to end.
+    Submit to settled, end to end.
   </h2>
 
   <ol class="mt-24 space-y-30">
@@ -75,64 +88,100 @@ const steps = [
         <div class={`lg:col-span-4 ${i % 2 === 1 ? 'lg:order-3' : ''}`}>
           <div class="vf-card aspect-square flex items-center justify-center">
             <svg viewBox="0 0 200 200" class="w-full h-full p-4" aria-hidden="true">
-              <!-- Per-step mini-diagrams, stylized and minimal -->
-              {step.diagram === 'manifest' && (
+              {/* Per-step mini-diagrams, stylized and minimal */}
+              {step.diagram === 'submit' && (
                 <g>
-                  <rect x="40" y="60" width="120" height="80" rx="6" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
-                  <line x1="55" y1="80" x2="145" y2="80" stroke="#b87333" stroke-width="2"/>
-                  <line x1="55" y1="95" x2="125" y2="95" stroke="#5fa39a" stroke-width="1.5"/>
-                  <line x1="55" y1="110" x2="135" y2="110" stroke="#5fa39a" stroke-width="1.5"/>
-                  <line x1="55" y1="125" x2="115" y2="125" stroke="#5fa39a" stroke-width="1.5"/>
+                  {/* Stripe hold card on the client side */}
+                  <rect x="30" y="70" width="70" height="60" rx="4" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <line x1="30" y1="84" x2="100" y2="84" stroke="#b87333" stroke-width="2"/>
+                  <text x="65" y="105" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#3b2e23">$ hold</text>
+                  <text x="65" y="120" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#5fa39a">requires_capture</text>
+                  {/* Arrow to broker */}
+                  <path d="M 105 100 L 135 100" stroke="#b87333" stroke-width="1.5" marker-end="url(#arrow)"/>
+                  <text x="120" y="93" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#3b2e23">POST</text>
+                  {/* Broker block on the right */}
+                  <rect x="140" y="70" width="40" height="60" rx="4" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="160" y="100" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#3b2e23">broker</text>
+                  <text x="160" y="115" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#2d6a4f">verified</text>
                 </g>
               )}
               {step.diagram === 'attestation' && (
                 <g>
+                  {/* AMD SEV-SNP chip silhouette */}
                   <rect x="60" y="40" width="80" height="120" rx="4" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
-                  <text x="100" y="90" text-anchor="middle" font-size="10" font-family="JetBrains Mono" fill="#2d6a4f">SEV-SNP</text>
-                  <text x="100" y="110" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#4a4a45">measurement:</text>
-                  <text x="100" y="125" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">0x9af2...</text>
-                  <circle cx="100" cy="100" r="35" fill="none" stroke="#2d6a4f" stroke-width="1" opacity="0.4">
-                    <animate attributeName="r" values="33;45;33" dur="3s" repeatCount="indefinite"/>
+                  <text x="100" y="62" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#3b2e23">AMD SEV-SNP</text>
+                  <line x1="70" y1="72" x2="130" y2="72" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
+                  <text x="100" y="86" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#2d6a4f">measurement</text>
+                  <text x="100" y="100" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">0x9af2…</text>
+                  <line x1="70" y1="110" x2="130" y2="110" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
+                  <text x="100" y="124" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#2d6a4f">cert_chain</text>
+                  <text x="100" y="138" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">VCEK · VLEK</text>
+                  <text x="100" y="152" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#2d6a4f">enclave_pubkey</text>
+                  {/* Subtle attestation pulse */}
+                  <circle cx="100" cy="100" r="55" fill="none" stroke="#2d6a4f" stroke-width="1" opacity="0.3">
+                    <animate attributeName="r" values="52;65;52" dur="3s" repeatCount="indefinite"/>
                   </circle>
                 </g>
               )}
               {step.diagram === 'payload' && (
                 <g>
-                  <rect x="40" y="80" width="50" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
-                  <rect x="110" y="80" width="50" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
-                  <path d="M 90 100 L 110 100" stroke="#b87333" stroke-width="1.5"/>
-                  <text x="65" y="105" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">E(skill)</text>
-                  <text x="135" y="105" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#3b2e23">E(data)</text>
-                  <text x="100" y="70" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#5fa39a">→ enclave</text>
+                  {/* Client encrypts to enclave_pubkey */}
+                  <rect x="30" y="80" width="60" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="60" y="100" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#3b2e23">skill + data</text>
+                  <text x="60" y="114" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#5fa39a">X25519 · ChaCha20</text>
+                  {/* Lock symbol between */}
+                  <path d="M 95 100 L 115 100" stroke="#b87333" stroke-width="1.5" marker-end="url(#arrow)"/>
+                  <text x="105" y="93" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#b87333">🔒</text>
+                  {/* Broker envelope — ciphertext only */}
+                  <rect x="120" y="80" width="60" height="40" rx="3" fill="#faf8f4" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="150" y="100" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#3b2e23">envelope</text>
+                  <text x="150" y="114" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#2d6a4f">+ skill_hash</text>
+                  <text x="100" y="70" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#5fa39a">broker sees ciphertext only</text>
                 </g>
               )}
               {step.diagram === 'execute' && (
                 <g>
+                  {/* Attested VM box */}
                   <rect x="50" y="50" width="100" height="100" rx="6" fill="none" stroke="#2d6a4f" stroke-width="2"/>
-                  <text x="100" y="105" text-anchor="middle" font-size="14" font-family="JetBrains Mono" fill="#2d6a4f" font-weight="600">WASM</text>
-                  <line x1="70" y1="70" x2="130" y2="70" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
-                  <line x1="70" y1="130" x2="130" y2="130" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
-                  <circle cx="80" cy="125" r="3" fill="#b87333">
-                    <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/>
+                  <text x="100" y="68" text-anchor="middle" font-size="9" font-family="JetBrains Mono" fill="#2d6a4f">attested worker</text>
+                  <line x1="70" y1="74" x2="130" y2="74" stroke="#5fa39a" stroke-width="1" opacity="0.5"/>
+                  {/* WASM block inside */}
+                  <rect x="70" y="82" width="60" height="22" rx="3" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
+                  <text x="100" y="97" text-anchor="middle" font-size="10" font-family="JetBrains Mono" fill="#2d6a4f" font-weight="600">WASM</text>
+                  {/* Fuel + duration gauges */}
+                  <text x="100" y="118" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#5fa39a">max_fuel · max_duration_ms</text>
+                  {/* Signing activity */}
+                  <text x="100" y="138" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">Ed25519 sign → result</text>
+                  <circle cx="80" cy="135" r="2.5" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="1.6s" repeatCount="indefinite"/>
                   </circle>
-                  <circle cx="100" cy="125" r="3" fill="#b87333">
-                    <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.3s" repeatCount="indefinite"/>
+                  <circle cx="100" cy="135" r="2.5" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="1.6s" begin="0.4s" repeatCount="indefinite"/>
                   </circle>
-                  <circle cx="120" cy="125" r="3" fill="#b87333">
-                    <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.6s" repeatCount="indefinite"/>
+                  <circle cx="120" cy="135" r="2.5" fill="#b87333">
+                    <animate attributeName="opacity" values="0;1;0" dur="1.6s" begin="0.8s" repeatCount="indefinite"/>
                   </circle>
                 </g>
               )}
               {step.diagram === 'payment' && (
                 <g>
+                  {/* Two-state Stripe block */}
                   <circle cx="60" cy="100" r="20" fill="none" stroke="#3b2e23" stroke-width="1.5"/>
-                  <text x="60" y="105" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#3b2e23">$</text>
+                  <text x="60" y="104" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#3b2e23">$</text>
+                  <text x="60" y="135" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#3b2e23">PI held</text>
                   <circle cx="140" cy="100" r="20" fill="none" stroke="#2d6a4f" stroke-width="1.5"/>
-                  <text x="140" y="105" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#2d6a4f">$</text>
+                  <text x="140" y="104" text-anchor="middle" font-size="11" font-family="JetBrains Mono" fill="#2d6a4f">$</text>
+                  <text x="140" y="135" text-anchor="middle" font-size="7" font-family="JetBrains Mono" fill="#2d6a4f">capture $actual</text>
                   <path d="M 85 100 L 115 100" stroke="#b87333" stroke-width="2" marker-end="url(#arrow)"/>
-                  <text x="100" y="85" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">MPP</text>
+                  <text x="100" y="85" text-anchor="middle" font-size="8" font-family="JetBrains Mono" fill="#b87333">or refund</text>
                 </g>
               )}
+              {/* Shared arrowhead marker — declared once per SVG */}
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#b87333"/>
+                </marker>
+              </defs>
             </svg>
           </div>
         </div>
