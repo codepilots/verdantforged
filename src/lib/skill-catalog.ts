@@ -36,6 +36,9 @@ export interface SkillCatalogEntry {
 }
 
 export const SKILL_CATALOG: ReadonlyArray<SkillCatalogEntry> = [
+  // NOTE: These account IDs are currently synthetic placeholders.
+  // They should be replaced with real Stripe Connect account IDs from the Stripe dashboard.
+  // See task t_cae20aa4 for details on setting up real Connect accounts.
   {
     name: 'code-review-v3.2',
     description: 'Security-focused code review for Python/JS/Rust.',

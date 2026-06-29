@@ -70,5 +70,5 @@ import PillarLayout from '~/layouts/PillarLayout.astro';
       detail: 'The submission uses an instance-id-based attestation source (attestation_source: "instance_id_sha256") because the demo is not on real SEV-SNP hardware. The wire protocol and the verification logic are identical — only the source of the report changes.',
     },
   ]}
-  next={{ number: '02', name: 'Security', href: '/security/' }}
+  next={{ number: '02', name: 'Security', href: `${import.meta.env.BASE_URL}security/` }}
 />

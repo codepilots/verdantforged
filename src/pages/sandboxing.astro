@@ -64,8 +64,8 @@ import PillarLayout from '~/layouts/PillarLayout.astro';
     {
       label: 'Sandbox limits in the manifest',
       detail: 'Every skill declares its max_fuel, max_duration_ms, and max_memory_mb in the registration request. The broker stores these and pins them at execution time. /v1/skills lets you list and inspect.',
-      href: '/docs#register-skill',
+      href: `${import.meta.env.BASE_URL}docs#register-skill`,
     },
   ]}
-  next={{ number: '04', name: 'Payment', href: '/payment/' }}
+  next={{ number: '04', name: 'Payment', href: `${import.meta.env.BASE_URL}payment/` }}
 />

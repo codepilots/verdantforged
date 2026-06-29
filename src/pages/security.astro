@@ -53,18 +53,18 @@ import PillarLayout from '~/layouts/PillarLayout.astro';
     {
       label: 'Quickstart script (working code)',
       detail: 'The /quickstart page includes a working Python script that generates the keypair, submits a job, polls for the result, and decrypts it. The script is exercised against the live broker.',
-      href: '/quickstart',
+      href: `${import.meta.env.BASE_URL}quickstart`,
     },
     {
       label: 'What ciphertext looks like on the wire',
       detail: 'result_encrypted is base64(eph_pubkey_32B || nonce_12B || ciphertext_with_tag). Split it in three parts, derive the shared secret, decrypt with ChaCha20-Poly1305 and the context tag b"verdantforged-result".',
-      href: '/docs#encryption-heading',
+      href: `${import.meta.env.BASE_URL}docs#encryption-heading`,
     },
     {
       label: 'Three independent signatures per result',
       detail: 'Each completed result carries worker_signature (Ed25519 over result_hash | skill_hash | input_hash), broker_signature (Ed25519 over the same), and the encrypted blob itself. See /docs for the verification order.',
-      href: '/docs',
+      href: `${import.meta.env.BASE_URL}docs`,
     },
   ]}
-  next={{ number: '03', name: 'Sandboxing', href: '/sandboxing/' }}
+  next={{ number: '03', name: 'Sandboxing', href: `${import.meta.env.BASE_URL}sandboxing/` }}
 />

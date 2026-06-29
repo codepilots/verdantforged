@@ -50,18 +50,6 @@ const steps = [
     Agreement to payment, end to end.
   </h2>
 
-  <!-- Attestation chain diagram -->
-  <div class="mt-16 max-w-3xl mx-auto">
-    <div class="vf-card overflow-hidden">
-      <img
-        src={`${import.meta.env.BASE_URL}/diagrams/attestation-chain.png`}
-        alt="Attestation chain: Planner LLM submits plan to NemoClaw SEV-SNP enclave, which produces attestation proof, reviewed at human gate, then Stripe MPP settles per-step with refund on violation"
-        class="w-full"
-        loading="lazy"
-      />
-    </div>
-  </div>
-
   <ol class="mt-24 space-y-30">
     {steps.map((step, i) => (
       <li class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 items-center">

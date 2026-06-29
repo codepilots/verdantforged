@@ -54,18 +54,18 @@ import PillarLayout from '~/layouts/PillarLayout.astro';
     {
       label: 'The four lifecycle paths',
       detail: 'Happy / failure / insufficient funds / abandoned topup — full code snippets, timelines, and the 7-event audit trail in /payment-flow.',
-      href: '/payment-flow',
+      href: `${import.meta.env.BASE_URL}payment-flow`,
     },
     {
       label: 'Pricing model',
       detail: 'Two line items: $0.20 per 15-minute session lease (pro-rata per second) + $0.001 per 1K tokens. Stripe fees (2.9% + $0.30) are passed through, not absorbed. Worked examples in /pricing.',
-      href: '/pricing',
+      href: `${import.meta.env.BASE_URL}pricing`,
     },
     {
       label: 'Terms and refund policy',
       detail: 'Refunds: full on failure, partial on unused time, topup window for insufficient funds, no refund on completed jobs. See /terms for the full policy.',
-      href: '/terms',
+      href: `${import.meta.env.BASE_URL}terms`,
     },
   ]}
-  next={{ number: '04', name: 'Payment', href: '/payment/' }}
+  next={{ number: '01', name: 'Attestation', href: `${import.meta.env.BASE_URL}attestation/` }}
 />

@@ -20,10 +20,10 @@ const stack = [
 ];
 
 const pillars = [
-  { name: 'Attestation',  href: '/attestation' },
-  { name: 'Security',     href: '/security'    },
-  { name: 'Sandboxing',   href: '/sandboxing'  },
-  { name: 'Payment',      href: '/payment'     },
+  { name: 'Attestation',  href: `${import.meta.env.BASE_URL}attestation/` },
+  { name: 'Security',     href: `${import.meta.env.BASE_URL}security/`    },
+  { name: 'Sandboxing',   href: `${import.meta.env.BASE_URL}sandboxing/`  },
+  { name: 'Payment',      href: `${import.meta.env.BASE_URL}payment/`     },
 ];
 ---
 
@@ -57,7 +57,7 @@ const pillars = [
             </li>
           ))}
           <li class="pt-3 border-t border-bg/15 mt-3">
-            <a href="/agents" class="text-bg/85 hover:text-copper transition-colors">
+            <a href={`${import.meta.env.BASE_URL}agents/`} class="text-bg/85 hover:text-copper transition-colors">
               For agents →
             </a>
           </li>
@@ -81,7 +81,7 @@ const pillars = [
 
     <!-- Resources strip -->
     <div class="mt-20 pt-10 border-t border-bg/15 grid grid-cols-2 sm:grid-cols-4 gap-4 text-caption">
-      <a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a>
+      <a href={`${import.meta.env.BASE_URL}AGENT.md`} class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a>
       <a
         href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
         class="text-bg/85 hover:text-copper transition-colors"

@@ -2,12 +2,8 @@
    Apple-clean type, copper + verdigris accents, paper texture
    LOCKED palette — see PROPOSAL.md */
 
-/*
-   Webfonts are loaded as a <link rel="stylesheet"> in BaseLayout.astro,
-   NOT as a CSS @import here — see BaseLayout.astro for the reason
-   (CSS @import blocks all subsequent rules until the import resolves,
-   which silently dropped the whole stylesheet on GitHub Pages 2026-06-19).
-*/
+/* Webfonts — must come before @tailwind per PostCSS spec */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;

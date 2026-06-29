@@ -29,14 +29,14 @@ interface Props {
 const { active = 'home', title } = Astro.props;
 
 const links = [
-  { href: '/',                 label: 'Overview',      key: 'home'         },
-  { href: '/attestation/',     label: 'Attestation',   key: 'attestation'  },
-  { href: '/security/',        label: 'Security',      key: 'security'     },
-  { href: '/sandboxing/',      label: 'Sandboxing',    key: 'sandboxing'   },
-  { href: '/payment/',         label: 'Payment',       key: 'payment'      },
-  { href: '/agents/',          label: 'For agents',    key: 'agents'       },
-  { href: '/pricing',          label: 'Pricing',       key: 'pricing'      },
-  { href: '/docs',             label: 'API',           key: 'docs'         },
+  { href: `${import.meta.env.BASE_URL}`,                 label: 'Overview',      key: 'home'         },
+  { href: `${import.meta.env.BASE_URL}attestation/`,     label: 'Attestation',   key: 'attestation'  },
+  { href: `${import.meta.env.BASE_URL}security/`,        label: 'Security',      key: 'security'     },
+  { href: `${import.meta.env.BASE_URL}sandboxing/`,      label: 'Sandboxing',    key: 'sandboxing'   },
+  { href: `${import.meta.env.BASE_URL}payment/`,         label: 'Payment',       key: 'payment'      },
+  { href: `${import.meta.env.BASE_URL}agents/`,          label: 'For agents',    key: 'agents'       },
+  { href: `${import.meta.env.BASE_URL}pricing`,          label: 'Pricing',       key: 'pricing'      },
+  { href: `${import.meta.env.BASE_URL}docs`,             label: 'API',           key: 'docs'         },
 ] as const;
 ---
 
@@ -46,7 +46,7 @@ const links = [
 >
   <div class="vf-container flex flex-wrap items-center gap-x-6 gap-y-2 py-3">
     <a
-      href="/"
+      href={import.meta.env.BASE_URL}
       class="vf-eyebrow text-ink-soft hover:text-copper transition-colors"
       aria-label="VerdantForged home"
     >

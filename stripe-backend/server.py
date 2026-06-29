@@ -129,11 +129,17 @@ class StripeHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "destination (acct_*) required"})
                     return
 
+                # NOTE: stripe-py 15.x dropped the `transfer_type` parameter
+                # (it was never needed for `stripe_account` transfers — the
+                # default is already the destination-account transfer). Sending
+                # it now raises InvalidRequestError, so we omit it. The
+                # transfer_group is set in metadata for grouping/MPP narrative;
+                # the top-level `transfer_group` field is reserved for
+                # PaymentIntents that fund the platform balance.
                 transfer = stripe.Transfer.create(
                     amount=amount_cents,
                     currency="usd",
                     destination=destination,
-                    transfer_type="stripe_account",
                     description=description,
                     metadata={
                         "source": "verdantforged-demo",

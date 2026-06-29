@@ -38,7 +38,6 @@ const SYNTHETIC_PLANNER_PUBKEY = 'ed25519:synthetic_demo_planner_pubkey_9f8e7d6c
 const SYNTHETIC_OPENSHELL = 'default-deny; allow api.stripe.com:443 only';
 const APP_FEE_RATE = 0.05; // 5% application fee on each transfer
 const FUEL_BUDGET_PER_STEP = 50_000_000;
-const STRIPE_BACKEND_URL = 'https://stripe.codepilots.co.uk';
 
 // ─── Utilities ────────────────────────────────────────────────
 
@@ -79,44 +78,6 @@ async function realSign(payload: string): Promise<string> {
     return `ed25519:sha256_${hex}${rand(8)}`;
   }
   return fakeSign(payload);
-}
-
-// ─── Stripe Transfer Helper ──────────────────────────────────────
-
-async function createStripeTransfer(
-  amountCents: number,
-  destination: string,
-  transferGroup: string,
-  description: string
-): Promise<string> {
-  try {
-    // Try to create a real transfer via the backend
-    const response = await fetch(`${STRIPE_BACKEND_URL}/create-transfer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount_cents: amountCents,
-        destination,
-        transfer_group: transferGroup,
-        description,
-      }),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (data.id) {
-        return data.id; // Real Stripe transfer ID
-      }
-    }
-    
-    // Fallback to synthetic ID if backend call fails
-    const rand = Math.random().toString(36).slice(2, 26);
-    return `tr_test_mock_${rand}`;
-  } catch (err) {
-    // Fallback to synthetic ID if fetch fails
-    const rand = Math.random().toString(36).slice(2, 26);
-    return `tr_test_mock_${rand}`;
-  }
 }
 
 // ─── Mock Broker ──────────────────────────────────────────────
@@ -289,13 +250,7 @@ class BrokerMock implements BrokerClient {
       }
 
       // transfer:created
-      // Create a real Stripe transfer instead of synthetic ID
-      const transfer_id = await createStripeTransfer(
-        Math.round(skillCost * 100), // amount in cents
-        skillEntry.provider_acct,
-        `session_${session_id}`, // transfer group
-        `Step ${stepNum} transfer for ${skillEntry.provider_name}`
-      );
+      const transfer_id = `tr_test_${rand(24)}`;
       const appFee = +(skillCost * APP_FEE_RATE).toFixed(4);
       this.emit({
         type: 'transfer:created',
