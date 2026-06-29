@@ -5,9 +5,7 @@
  * Apple-clean, single-page scroll. Each endpoint gets a section: purpose,
  * auth, request/response schemas, curl example, error responses.
  *
- * Source-of-truth: broker-daemon/daemon.py + the OpenAPI 3.1 spec served at
- *   https://verdant.codepilots.co.uk/v1/openapi.json
- *   https://verdantforged.pages.dev/openapi.json
+ * Source-of-truth: broker-daemon/daemon.py route registrations + live /v1/discover
  *
  * Convention: page stays terse. Each endpoint section is independently
  * linkable via `#anchor`. Curl examples are written against the live broker
@@ -35,9 +33,9 @@ const endpoints: Array<{
     id: 'healthz',
     method: 'GET',
     path: '/healthz',
-    purpose: 'Liveness check. Returns 200 whenever the daemon is responding. The `worker` field is `false` at idle (workers are launched on demand, terminated after a configurable buffer).',
+    purpose: 'Liveness check. Returns 200 whenever the daemon is responding. The `worker` field is `true` when a worker is running, `false` at idle (workers are launched on demand, terminated after a configurable buffer).',
     auth: 'None.',
-    response: `{"ok": true, "worker": false}`,
+    response: `{"ok": true, "worker": true}`,
     curl: `curl -sS ${brokerBase}/healthz`,
   },
   {
@@ -47,20 +45,21 @@ const endpoints: Array<{
     purpose: 'Broker advertisement. Returns region, pricing, the supported skill catalog, and the worker SEV-SNP attestation block. Pin `attestation.min_measurement` to detect worker tampering; pin `attestation.policy_hash` to detect egress-policy widening.',
     auth: 'None.',
     response: `{
-  "broker_id": "verdantforged-eu-west-2",
+  "broker_id": "verdantforged-eu-west-1",
   "endpoint": "https://verdant.codepilots.co.uk",
-  "region": "eu-west-2",
+  "region": "eu-west-1",
   "attestation": {
     "tee_type": "amd-sev-snp",
-    "min_measurement": "<64-char hex>",
+    "min_measurement": "<96-char hex>",
     "worker_attested": true,
     "policy_hash": "<64-char hex>",
     "fetched_at": "<ISO 8601>",
-    "report": "",                 // base64 1184-byte SEV-SNP report
-    "cert_chain": [],             // base64 DER cert chain to AMD root
-    "enclave_pubkey": "",         // base64 32-byte worker X25519 key
-    "chip_id": "", "family_id": "",
-    "attestation_source": "instance_id_sha256"  // or "sev_snp"
+    "report": "<base64 1184-byte SEV-SNP report>",
+    "report_data": "<64-char hex>",
+    "cert_chain": ["<base64 DER cert chain to AMD root>"],
+    "enclave_pubkey": "<base64 32-byte worker X25519 key>",
+    "chip_id": "<hex>", "family_id": "<hex>",
+    "attestation_source": "tsm_configfs"
   },
   "pricing": {"model": "session-lease", "lease_per_15min_usd": 0.20},
   "supported_skills": ["code-review", "summarize", "photo-glow-up"]
@@ -71,7 +70,7 @@ const endpoints: Array<{
     id: 'submit-job',
     method: 'POST',
     path: '/v1/jobs',
-    purpose: 'Submit a job. Returns 202 with `job_id`, `state: queued`, and a per-job `llm_token` (10-min TTL) the worker uses to call the LLM proxy. Idempotent: send the same `client_req_id` twice and you get the original job back (`idempotent_replay: true`).',
+    purpose: 'Submit a job. Returns 202 with `job_id`, `state: queued`, and a per-job `job_access_token` used to authenticate status polling and artifact downloads. The worker receives a separate internal `llm_token` (10-min TTL) via the EFS envelope. Idempotent: send the same `client_req_id` twice and you get the original job back (`idempotent_replay: true`). For file jobs, include `input_files` to trigger the two-phase flow — the response is then `state: awaiting_worker` and the client polls GET /v1/jobs/{id} for presigned upload URLs.',
     auth: 'No auth header. The `stripe_pi_id` is validated against Stripe (or accepted as-is in demo mode when `STRIPE_SECRET_KEY` is unset on the server).',
     request: `{
   "client_req_id":      "my-unique-id-001",   // required, ≤128 chars, idempotency key
@@ -82,13 +81,17 @@ const endpoints: Array<{
   "result_pubkey":      "<base64 32B X25519>", // required; "0x" disables encryption
   "stripe_pi_id":       "pi_test_...",         // required; starts with pi_
   "webhook_url":        "https://...",         // optional; broker POSTs on finalize
-  "timestamp":          "2026-06-28T07:00Z"    // optional; only used in sig payload
+  "timestamp":          "2026-06-28T07:00Z",   // optional; only used in sig payload
+  "input_files":        [                      // optional; triggers two-phase file job
+    {"filename": "input.pdf", "size_bytes": 12345,
+     "sha256": "<64 hex>", "content_type": "application/pdf"}
+  ]
 }`,
     response: `{
   "job_id": "job_5f9e3a...",
   "state": "queued",
   "status_url": "/v1/jobs/job_5f9e3a...",
-  "llm_token": "llm_a1b2c3...",
+  "job_access_token": "jobtok_...",
   "idempotent_replay": false
 }`,
     curl: `curl -sS -X POST ${brokerBase}/v1/jobs \\
@@ -113,10 +116,10 @@ const endpoints: Array<{
     method: 'GET',
     path: '/v1/jobs/{job_id}',
     purpose: 'Poll a job. While `state` is `queued` or `running`, `result` and `payment` are absent. On `completed`, `result` carries the encrypted output, model metadata, signatures, and artifact URLs. The `payment` block surfaces the Stripe capture/refund outcome without a second Stripe call.',
-    auth: 'None.',
+    auth: 'Authorization: Bearer <job_access_token>. The token is returned at job submission and required for all job-scoped endpoints.',
     response: `{
   "job_id":     "job_5f9e3a...",
-  "state":      "completed",     // queued | running | completed | failed | timeout
+  "state":      "completed",     // queued | running | completed | failed | timeout | awaiting_topup
   "created_at": "2026-06-28T07:00:00+00:00",
   "started_at": "2026-06-28T07:00:42+00:00",
   "finished_at":"2026-06-28T07:01:08+00:00",
@@ -126,12 +129,12 @@ const endpoints: Array<{
     "skill_hash":  "<64 hex>",
     "input_hash":  "<64 hex>",
     "output":      "Broker t3.small, worker m6a.xlarge ...",
-    "model":       "minimax-m3",
+    "model":       "gemini-2.5-flash",
     "usage":       {"prompt_tokens": 142, "completion_tokens": 87, "total_tokens": 229},
     "duration_ms": 26412,
     "fuel_used":   26412,
-    "execution_mode": "summarize-deterministic",
-    "attestation": {"tee_type": "amd-sev-snp", "measurement": "<64 hex>"},
+    "execution_mode": "nemoclaw-sandbox",
+    "attestation": {"tee_type": "amd-sev-snp", "measurement": "<96 hex>"},
     "result_hash": "<64 hex>",
     "worker_signature":  "<base64 Ed25519>",
     "broker_signature":  "<base64 Ed25519>",
@@ -148,14 +151,15 @@ const endpoints: Array<{
     }
   },
   "payment": {
-    "status": "demo_succeeded",      // or demo_refunded / succeeded / refunded / ...
-    "mode":   "demo",                // "live" when STRIPE_SECRET_KEY is set
-    "amount_cents": 5,
-    "stripe_id": null,
-    "held_amount_cents": 5
+    "status":      "succeeded",      // succeeded | refunded | pending | shortfall_required
+    "mode":        "demo",            // "live" when STRIPE_SECRET_KEY is set
+    "demo":        true,              // demo/live discriminator
+    "amount_cents":      5,           // captured amount
+    "stripe_id":         null,        // Stripe transfer / charge id
+    "held_amount_cents": 5            // original PI held amount
   }
 }`,
-    curl: `curl -sS ${brokerBase}/v1/jobs/job_5f9e3a...`,
+    curl: `curl -sS -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_5f9e3a...`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
     ],
@@ -165,7 +169,7 @@ const endpoints: Array<{
     method: 'GET',
     path: '/v1/jobs/{job_id}/artifacts',
     purpose: 'Returns the artifact manifest augmented with per-file presigned S3 download URLs (15-min TTL). Files are encrypted client-side (X25519 + ChaCha20-Poly1305) to your `result_pubkey`. S3 objects auto-delete after 24 hours.',
-    auth: 'None.',
+    auth: 'Authorization: Bearer <job_access_token>. Required for all job-scoped endpoints.',
     response: `{
   "count": 1,
   "encryption": "x25519-chacha20poly1305",
@@ -174,14 +178,14 @@ const endpoints: Array<{
     {
       "filename": "output.txt", "content_type": "text/plain",
       "sha256": "<64 hex>", "size_bytes": 87,
-      "s3_key": "verdantforged-eu-west-2/artifacts/job_.../output.txt",
+      "s3_key": "verdantforged-eu-west-1/artifacts/job_.../output.txt",
       "encrypted": false, "encrypted_size_bytes": 0,
-      "download_url": "https://verdantforged-artifacts.s3.eu-west-2.amazonaws.com/...?X-Amz-..."
+      "download_url": "https://verdantforged-artifacts-eu-west-1.s3.eu-west-1.amazonaws.com/...?X-Amz-..."
     }
   ],
   "primary": { /* same shape, always the first file */ }
-}`,
-    curl: `curl -sS ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
+`,
+    curl: `curl -sS -H 'Authorization: Bearer *** ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
     errors: [
       { status: '404', body: `{"error": "no artifacts"}` },
     ],
@@ -191,9 +195,9 @@ const endpoints: Array<{
     method: 'GET',
     path: '/v1/jobs/{job_id}/artifacts/{filename}',
     purpose: 'Returns a 302 redirect to a presigned S3 GET URL (15-min TTL). Filename MUST appear in the manifest (allow-list); names containing `..` segments are rejected.',
-    auth: 'None.',
+    auth: 'Authorization: Bearer <job_access_token>. Required for all job-scoped endpoints.',
     response: '302 redirect with `Location: <presigned S3 URL>`',
-    curl: `curl -sS -L ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts/output.txt`,
+    curl: `curl -sS -L -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts/output.txt`,
     errors: [
       { status: '400', body: `{"error": "invalid filename"}` },
       { status: '404', body: `{"error": "file not in manifest"}` },
@@ -282,7 +286,7 @@ Location: /v1/skills/my-skill@0.1.0
     response: `{
   "id":      "chatcmpl-...",
   "object":  "chat.completion",
-  "model":   "minimax-m3",
+  "model":   "gemini-2.5-flash",
   "choices": [ ... ],
   "usage":   {"prompt_tokens": 142, "completion_tokens": 87, "total_tokens": 229},
   "_billing": {
@@ -311,15 +315,109 @@ Location: /v1/skills/my-skill@0.1.0
     method: 'GET',
     path: '/v1/llm/usage/{job_id}',
     purpose: 'Cumulative LLM token usage and call count for a specific job (across all worker proxy calls).',
-    auth: 'None.',
+    auth: 'Authorization: Bearer <...3e.',
     response: `{
   "job_id":          "job_5f9e3a...",
   "llm_tokens_used": 229,
   "llm_calls":       1
 }`,
-    curl: `curl -sS ${brokerBase}/v1/llm/usage/job_5f9e3a...`,
+    curl: `curl -sS -H 'Authorization: ...rBase}/v1/llm/usage/job_5f9e3a...`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
+    ],
+  },
+  {
+    id: 'mark-job-ready',
+    method: 'POST',
+    path: '/v1/jobs/{job_id}/ready',
+    purpose: 'Phase-2 of the two-phase file job flow. After the client has PUT all declared input files to their presigned S3 URLs, this call verifies every file is present (HeadObject per key), transitions the job from awaiting_inputs to queued, writes the EFS envelope with S3 input keys, and kicks the worker. Idempotent: a second call against a queued/running job returns 409 (state mismatch) rather than 200.',
+    auth: 'Authorization: Bearer <...03e.',
+    request: '(bodyless — the broker re-derives the input_files list from the stored request body)',
+    response: `{
+  "job_id": "job_5f9e3a...",
+  "state":  "queued",
+  "message": "inputs verified, job queued"
+}`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer ...brokerBase}/v1/jobs/job_5f9e3a.../ready`,
+    errors: [
+      { status: '404', body: `{"error": "not found"}` },
+      { status: '409', body: `{"error": "job is in state queued, not awaiting_inputs", "code": "wrong_state"}` },
+      { status: '409', body: `{"error": "some input files missing", "code": "inputs_pending", "missing": ["input.pdf"]}` },
+      { status: '410', body: `{"error": "input upload window expired", "code": "input_upload_expired"}` },
+    ],
+  },
+  {
+    id: 'topup-job',
+    method: 'POST',
+    path: '/v1/jobs/{job_id}/topup',
+    purpose: 'Handle insufficient funds. When a job completes but the held amount is less than the actual cost, the job transitions to state=awaiting_topup and the encrypted result is withheld. The client calls this endpoint with a new PaymentIntent ID covering the shortfall. On success the broker captures the topup PI, transitions to completed, and releases the result. Idempotent: the broker caches the first successful topup and returns it on retry.',
+    auth: 'Authorization: Bearer <...03e.',
+    request: `{
+  "stripe_pi_id": "pi_topup_xxx"
+}`,
+    response: `{
+  "status":  "succeeded",
+  "message": "topup captured, result released"
+}`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer ...rBase}/v1/jobs/job_5f9e3a.../topup -d '{"stripe_pi_id": "pi_topup_xxx"}'`,
+    errors: [
+      { status: '400', body: `{"error": "invalid stripe_pi_id format"}` },
+      { status: '404', body: `{"error": "not found"}` },
+      { status: '409', body: `{"error": "topup already settled", "code": "topup_already_settled"}` },
+    ],
+  },
+  {
+    id: 'ack-job',
+    method: 'POST',
+    path: '/v1/jobs/{job_id}/ack',
+    purpose: 'Customer confirms receipt of a completed job. The threat model flags that 24h result retention is shorter than the Stripe chargeback window (120+ days). This endpoint pins a delivery-confirmation timestamp, the customer proof text, and the source IP — the trio the operator surfaces to Stripe dispute evidence. Idempotent: a second ack returns the original timestamp.',
+    auth: 'Authorization: Bearer <...03e.',
+    request: `{
+  "proof": "I received and verified the output."
+}`,
+    response: `{
+  "job_id":     "job_5f9e3a...",
+  "acked_at":   "2026-06-28T07:05:00+00:00",
+  "ack_proof": "I received and verified the output."
+}`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer ...rBase}/v1/jobs/job_5f9e3a.../ack -d '{"proof": "Received."}'`,
+    errors: [
+      { status: '400', body: `{"error": "body must include non-empty 'proof' string", "code": "proof_required"}` },
+      { status: '404', body: `{"error": "job not found", "code": "not_found"}` },
+      { status: '409', body: `{"error": "cannot ack job in state 'queued'", "code": "invalid_state"}` },
+    ],
+  },
+  {
+    id: 'stripe-webhook',
+    method: 'POST',
+    path: '/v1/stripe/webhook',
+    purpose: 'Receives Stripe webhook events (e.g. charge.dispute.created). On dispute creation, the broker suspends the associated account (pending review) to prevent further job submission until the dispute is resolved.',
+    auth: 'Stripe-Signature header (verified via STRIPE_WEBHOOK_SECRET). No Bearer token.',
+    response: `{"received": true}`,
+    curl: `# Configured in the Stripe dashboard, not called directly by clients`,
+    errors: [
+      { status: '400', body: `{"error": "invalid signature"}` },
+    ],
+  },
+  {
+    id: 'upload-skill-wasm',
+    method: 'POST',
+    path: '/v1/skills/{name}/wasm',
+    purpose: 'Upload the WASM binary for a registered skill. The skill must already exist (POST /v1/skills). The binary is stored on EFS and its SHA-256 is verified against the manifest hash declared at registration. Max 50 MiB.',
+    auth: 'Authorization: Bearer <...EY>.',
+    request: 'Raw binary body (application/octet-stream). The name path segment must match the registered skill name.',
+    response: `{
+  "name":    "photo-glow-up",
+  "version": "0.1.0",
+  "sha256":  "<64 hex>",
+  "size":    182272,
+  "stored":  true
+}`,
+    curl: `curl -sS -X POST ${brokerBase}/v1/skills/photo-glow-up/wasm \\\\\n  -H 'Authorization: Bearer <...EY>' \\\\\n  -H 'Content-Type: application/octet-stream' \\\\\n  --data-binary @photo-glow-up.wasm`,
+    errors: [
+      { status: '401', body: `{"error": "missing or invalid Authorization header", "code": "skills_auth_required"}` },
+      { status: '404', body: `{"error": "skill not found"}` },
+      { status: '413', body: `{"error": "WASM binary exceeds 50 MiB limit"}` },
     ],
   },
 ];
@@ -354,9 +452,6 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
         <a href="/openapi.json" class="vf-button-ghost text-body-sm" download>
           Download OpenAPI 3.1 spec
         </a>
-        <a href={brokerBase + '/v1/openapi.json'} class="vf-button-ghost text-body-sm" rel="noopener">
-          Live spec at /v1/openapi.json
-        </a>
       </div>
     </section>
 
@@ -364,40 +459,47 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
     <section class="vf-container section-sm" aria-labelledby="auth-heading">
       <div class="vf-divider mb-16"></div>
       <p class="vf-eyebrow">Auth model</p>
-      <h2 id="auth-heading" class="vf-heading-section mt-6 max-w-4xl">Three doors, three keys.</h2>
+      <h2 id="auth-heading" class="vf-heading-section mt-6 max-w-4xl">Four doors, four keys.</h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
-        The broker uses three distinct credentials. None of them are the real LLM API key.
+        The broker uses four distinct credentials. None of them are the real LLM API key.
       </p>
-      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-4 gap-6 max-w-5xl">
         <div class="vf-card">
           <p class="vf-eyebrow text-verdigris-deep">Public</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">No header</p>
           <p class="text-body-sm text-ink-soft mt-4">
             <code class="font-mono text-copper">GET /v1/discover</code>,
             <code class="font-mono text-copper">/healthz</code>,
-            <code class="font-mono text-copper">/v1/jobs</code> (submit),
-            <code class="font-mono text-copper">/v1/jobs/&#123;id&#125;</code> (poll),
-            artifacts endpoints,
-            <code class="font-mono text-copper">/v1/skills</code> (list/get).
+            <code class="font-mono text-copper">POST /v1/jobs</code> (submit).
             Anyone can read; nothing leaks the real LLM key.
           </p>
         </div>
         <div class="vf-card">
           <p class="vf-eyebrow text-verdigris-deep">Per-job</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">job_access_token</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            <code class="font-mono text-copper">Authorization: Bearer &lt;jo...en&gt;</code>.
+            Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
+            Required for job-scoped endpoints: status polling, artifacts, topup, ack, ready.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Per-job (internal)</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">llm_token</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;llm_token&gt;</code>.
-            10-min TTL. Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
-            Workers pass this to the LLM proxy. Per-job budget cap (50k tokens/day/account).
+            <code class="font-mono text-copper">Authorization: Bearer &lt;ll...de&gt;</code>.
+            10-min TTL. Passed to the worker via EFS envelope (never returned to the client).
+            Workers use this for the LLM proxy. Per-job budget cap (50k tokens/day/account).
           </p>
         </div>
         <div class="vf-card">
           <p class="vf-eyebrow text-verdigris-deep">Server-side</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">BROKER_SKILLS_API_KEY</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;BROKE...Y&gt;</code>.
+            <code class="font-mono text-copper">Authorization: Bearer &lt;BR...de&gt;</code>.
             Operator-configured. Used only by
-            <code class="font-mono text-copper">POST /v1/skills</code>.
+            <code class="font-mono text-copper">POST /v1/skills</code> and
+            <code class="font-mono text-copper">POST /v1/skills/&#123;name&#125;/wasm</code>.
             Constant-time comparison. If unset on the server, registration is 503.
           </p>
         </div>
@@ -408,7 +510,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
     <section class="vf-container section" aria-labelledby="endpoints-heading">
       <div class="vf-divider mb-16"></div>
       <p class="vf-eyebrow">Endpoints</p>
-      <h2 id="endpoints-heading" class="vf-heading-section mt-6 max-w-4xl">All 10 routes.</h2>
+      <h2 id="endpoints-heading" class="vf-heading-section mt-6 max-w-4xl">All 16 routes.</h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
         Every endpoint below was exercised against the live broker at
         <a href={brokerBase} class="vf-link" rel="noopener">{brokerBase}</a>
@@ -538,7 +640,7 @@ plaintext = ChaCha20Poly1305_decrypt(
             Fetch <code class="font-mono text-copper">GET /v1/discover</code>. Pin <code class="font-mono text-copper">attestation.min_measurement</code> to the expected worker measurement, and <code class="font-mono text-copper">attestation.policy_hash</code> to the expected OpenShell egress policy hash. When <code class="font-mono text-copper">attestation_source == "sev_snp"</code>, the <code class="font-mono text-copper">report</code> field is a base64 1184-byte SEV-SNP attestation report and <code class="font-mono text-copper">cert_chain</code> is the base64 DER chain to the AMD root.
           </p>
           <p class="mt-4">
-            Verify with <a href="https://github.com/Azure/confidential-computing-tee-attestation-samples" class="vf-link" rel="noopener">snpguest</a> or any AMD SEV-SNP verifier. The current demo broker runs in <code class="font-mono text-copper">eu-west-2</code> which does NOT support SEV-SNP, so <code class="font-mono text-copper">attestation_source</code> is <code class="font-mono text-copper">"instance_id_sha256"</code> and the measurement is a SHA-256 of the instance ID. For production-grade attestation, deploy to <code class="font-mono text-copper">eu-west-1</code>, <code class="font-mono text-copper">eu-central-1</code>, or <code class="font-mono text-copper">eu-north-1</code> with <code class="font-mono text-copper">CpuOptions=&#123;"AmdSevSnp": "Enabled"&#125;</code>.
+            Verify with <a href="https://github.com/Azure/confidential-computing-tee-attestation-samples" class="vf-link" rel="noopener">snpguest</a> or any AMD SEV-SNP verifier. The live broker runs in <code class="font-mono text-copper">eu-west-1</code> on an <code class="font-mono text-copper">m6a.xlarge</code> instance with <code class="font-mono text-copper">CpuOptions=&#123;"AmdSevSnp": "Enabled"&#125;</code>. The <code class="font-mono text-copper">attestation_source</code> is <code class="font-mono text-copper">"tsm_configfs"</code> — the report is read from the Linux TSM configfs interface backed by real SEV-SNP firmware, and the <code class="font-mono text-copper">cert_chain</code> terminates at the AMD ARK root key.
           </p>
         </div>
       </div>
@@ -551,15 +653,15 @@ plaintext = ChaCha20Poly1305_decrypt(
       <h2 id="payment-heading" class="vf-heading-section mt-6 max-w-4xl">The <code class="font-mono text-copper">payment</code> block.</h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
         Surfaced on every finalized job so clients can confirm capture/refund without a second Stripe call.
-        Demo-mode rows are prefixed with <code class="font-mono text-copper">demo_</code> so dashboards can filter them out without joining against <code class="font-mono text-copper">STRIPE_SECRET_KEY</code>.
+        The client-facing <code class="font-mono text-copper">status</code> field is the same in demo and live mode
+        (<code class="font-mono text-copper">succeeded</code>, <code class="font-mono text-copper">refunded</code>, etc.).
+        The <code class="font-mono text-copper">demo: true</code> flag is the discriminator — clients don't need to branch on status strings.
       </p>
       <pre class="vf-code mt-10 max-w-prose-vf"><code>{`{
-  "status": "demo_succeeded",       // demo_pending | demo_succeeded | demo_refunded |
-                                    // demo_failed  | demo_skipped   | succeeded |
-                                    // refunded     | failed         | skipped |
-                                    // canceled
-  "mode":   "demo",                 // "live" when STRIPE_SECRET_KEY is set on the server
-  "amount_cents":      5,           // captured amount (succeeded only)
+  "status":      "succeeded",       // succeeded | refunded | pending | shortfall_required
+  "mode":        "demo",            // "live" when STRIPE_SECRET_KEY is set on the server
+  "demo":        true,              // demo/live discriminator
+  "amount_cents":      5,           // captured amount
   "stripe_id":         null,        // Stripe transfer / charge id
   "held_amount_cents": 5            // original PI held amount
 }`}</code></pre>

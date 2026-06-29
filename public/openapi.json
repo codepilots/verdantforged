@@ -3,8 +3,8 @@
   "info": {
     "title": "VerdantForged TEE Broker API",
     "version": "0.1.0",
-    "summary": "REST API for the VerdantForged TEE broker (eu-west-2).",
-    "description": "Submit attested LLM jobs to a TEE-backed worker, poll status, fetch encrypted artifacts, and register new skills. The broker is a cheap always-on control plane (t3.small) that holds the queue, per-job LLM tokens, and Stripe payment lifecycle. The worker (m6a.xlarge, AMD SEV-SNP) is launched on demand and terminated after a configurable idle buffer. The real LLM API key never enters the worker — the worker receives per-job ephemeral tokens and calls the broker's /v1/llm/chat/completions proxy. **Live broker:** https://verdant.codepilots.co.uk",
+    "summary": "REST API for the VerdantForged TEE broker (eu-west-1).",
+    "description": "Submit attested LLM jobs to a TEE-backed worker, poll status, fetch encrypted artifacts, and register new skills. The broker is a cheap always-on control plane (t3.small) that holds the queue, per-job LLM tokens, and Stripe payment lifecycle. The worker (m6a.xlarge, AMD SEV-SNP) is launched on demand and terminated after a configurable idle buffer. The real LLM API key never enters the worker \u2014 the worker receives per-job ephemeral tokens and calls the broker's /v1/llm/chat/completions proxy. **Live broker:** https://verdant.codepilots.co.uk",
     "contact": {
       "name": "VerdantForged",
       "url": "https://verdantforged.pages.dev"
@@ -16,20 +16,37 @@
   "servers": [
     {
       "url": "https://verdant.codepilots.co.uk",
-      "description": "Live broker (eu-west-2)"
+      "description": "Live broker (eu-west-1)"
     }
   ],
   "tags": [
-    {"name": "Discovery", "description": "Broker advertisement, attestation, skill catalog"},
-    {"name": "Jobs", "description": "Submit jobs, poll status, fetch artifacts"},
-    {"name": "LLM Proxy", "description": "Worker-only OpenAI-compatible proxy"},
-    {"name": "Skills", "description": "Register and discover skills"},
-    {"name": "Health", "description": "Health check"}
+    {
+      "name": "Discovery",
+      "description": "Broker advertisement, attestation, skill catalog"
+    },
+    {
+      "name": "Jobs",
+      "description": "Submit jobs, poll status, fetch artifacts"
+    },
+    {
+      "name": "LLM Proxy",
+      "description": "Worker-only OpenAI-compatible proxy"
+    },
+    {
+      "name": "Skills",
+      "description": "Register and discover skills"
+    },
+    {
+      "name": "Health",
+      "description": "Health check"
+    }
   ],
   "paths": {
     "/healthz": {
       "get": {
-        "tags": ["Health"],
+        "tags": [
+          "Health"
+        ],
         "summary": "Liveness check",
         "description": "Returns 200 whenever the daemon is responding. Reports whether a worker is currently running (workers are launched on demand and terminated after an idle buffer, so `worker: false` is normal at idle). No auth.",
         "operationId": "healthz",
@@ -38,8 +55,13 @@
             "description": "Broker is alive",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Health"},
-                "example": {"ok": true, "worker": false}
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "ok": true,
+                  "worker": false
+                }
               }
             }
           }
@@ -48,7 +70,9 @@
     },
     "/v1/discover": {
       "get": {
-        "tags": ["Discovery"],
+        "tags": [
+          "Discovery"
+        ],
         "summary": "Broker advertisement + attestation block",
         "description": "Returns the broker's region, pricing model, supported skill catalog, and the worker's SEV-SNP attestation report (when populated). The attestation block carries the 1184-byte SEV-SNP report, the cert chain to the AMD root, the enclave's X25519 public key, the chip and family IDs, and the OpenShell policy hash. Callers SHOULD pin `attestation.min_measurement` to detect worker tampering and `attestation.policy_hash` to detect egress-policy widening. No auth.",
         "operationId": "discover",
@@ -57,7 +81,9 @@
             "description": "Broker advertisement",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Discover"}
+                "schema": {
+                  "$ref": "#/components/schemas/Discover"
+                }
               }
             }
           }
@@ -66,7 +92,9 @@
     },
     "/v1/jobs": {
       "post": {
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "summary": "Submit a job",
         "description": "Submits a job to the broker queue. On success returns 202 Accepted with `job_id`, `state: queued`, and a per-job `llm_token` (10-minute TTL) that the worker uses to call the broker's LLM proxy. **Idempotency:** clients SHOULD send a unique `client_req_id`. Re-submitting the same `client_req_id` returns the existing job (`idempotent_replay: true`) without creating a duplicate. **Auth:** none at the API layer; the broker validates the `stripe_pi_id` against Stripe (or accepts demo PIs when `STRIPE_SECRET_KEY` is unset).",
         "operationId": "submitJob",
@@ -74,7 +102,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/JobSubmit"},
+              "schema": {
+                "$ref": "#/components/schemas/JobSubmit"
+              },
               "example": {
                 "client_req_id": "my-unique-id-001",
                 "encrypted_skill": "summarize",
@@ -91,7 +121,9 @@
             "description": "Job accepted and queued",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/JobSubmitResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/JobSubmitResponse"
+                }
               }
             }
           },
@@ -99,7 +131,9 @@
             "description": "Idempotent replay (same `client_req_id` already submitted)",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/JobSubmitResponse"}
+                "schema": {
+                  "$ref": "#/components/schemas/JobSubmitResponse"
+                }
               }
             }
           },
@@ -107,7 +141,9 @@
             "description": "Invalid request body or Stripe PI",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Error"}
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           },
@@ -115,7 +151,9 @@
             "description": "Per-IP rate limit or daily token cap exceeded",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Error"}
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
@@ -124,19 +162,31 @@
     },
     "/v1/jobs/{job_id}": {
       "get": {
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "summary": "Poll job status",
         "description": "Returns the full job record. While `state` is `queued` or `running`, the `result` and `payment` fields are absent. On `completed`, `result` carries the encrypted output, model metadata, signature, and artifact URLs. The `payment` block surfaces Stripe capture/refund outcome without a second Stripe call. No auth.",
         "operationId": "getJob",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^job_[a-f0-9]+$"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[a-f0-9]+$"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Job record",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Job"}
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
               }
             }
           },
@@ -144,8 +194,12 @@
             "description": "Job not found",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Error"},
-                "example": {"error": "not found"}
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "not found"
+                }
               }
             }
           }
@@ -154,19 +208,31 @@
     },
     "/v1/jobs/{job_id}/artifacts": {
       "get": {
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "summary": "List job artifacts",
         "description": "Returns the artifact manifest augmented with per-file presigned S3 download URLs (15-minute TTL). The manifest is signed by the worker and counter-signed by the broker. Files are encrypted client-side (X25519+ChaCha20Poly1305) to your `result_pubkey`. S3 objects auto-delete after 24 hours. No auth.",
         "operationId": "getJobArtifacts",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^job_[a-f0-9]+$"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[a-f0-9]+$"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Artifact manifest with presigned URLs",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/ArtifactManifest"}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactManifest"
+                }
               }
             }
           },
@@ -174,8 +240,12 @@
             "description": "Job or artifacts not found",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Error"},
-                "example": {"error": "no artifacts"}
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "no artifacts"
+                }
               }
             }
           }
@@ -184,29 +254,72 @@
     },
     "/v1/jobs/{job_id}/artifacts/{filename}": {
       "get": {
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "summary": "Download a single artifact",
         "description": "Returns a 302 redirect to a presigned S3 GET URL (15-minute TTL). Filename MUST appear in the manifest's `files` array (allow-list); the daemon rejects names not in the manifest and names containing `..` segments. No auth.",
         "operationId": "getJobArtifactFile",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^job_[a-f0-9]+$"}},
-          {"name": "filename", "in": "path", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[a-f0-9]+$"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "302": {
             "description": "Redirect to presigned S3 GET URL",
             "headers": {
-              "Location": {"description": "Presigned S3 GET URL", "schema": {"type": "string", "format": "uri"}}
+              "Location": {
+                "description": "Presigned S3 GET URL",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
             }
           },
-          "400": {"description": "Invalid filename (path traversal attempt)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "404": {"description": "Job, artifacts, or filename not in manifest", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "400": {
+            "description": "Invalid filename (path traversal attempt)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job, artifacts, or filename not in manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/v1/skills": {
       "get": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "List registered skills",
         "description": "Returns every distinct skill name with its latest version. Built-in stubs (`code-review`, `summarize`, `photo-glow-up`) are advertised via `/v1/discover` and do NOT appear here unless explicitly registered. No auth.",
         "operationId": "listSkills",
@@ -217,9 +330,16 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["skills"],
+                  "required": [
+                    "skills"
+                  ],
                   "properties": {
-                    "skills": {"type": "array", "items": {"$ref": "#/components/schemas/Skill"}}
+                    "skills": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Skill"
+                      }
+                    }
                   }
                 }
               }
@@ -228,16 +348,24 @@
         }
       },
       "post": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Register a new skill",
         "description": "Registers a new skill (or a new version of an existing one). Exactly one of `prompt_template` or `wasm_ref` must be provided. Resource limits are bounded above the built-in stubs (default 256 MB / 60 s / 10M fuel) and capped below 4 GB / 600 s / 100M fuel to prevent a compromised publisher from exhausting the broker. **Auth (required):** `Authorization: Bearer <BROKER_SKILLS_API_KEY>`. If the server's key is unset the endpoint returns 503.",
         "operationId": "registerSkill",
-        "security": [{"SkillsApiKey": []}],
+        "security": [
+          {
+            "SkillsApiKey": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/SkillManifest"}
+              "schema": {
+                "$ref": "#/components/schemas/SkillManifest"
+              }
             }
           }
         },
@@ -245,77 +373,233 @@
           "201": {
             "description": "Skill registered",
             "headers": {
-              "Location": {"description": "Canonical URL for the registered skill", "schema": {"type": "string"}}
+              "Location": {
+                "description": "Canonical URL for the registered skill",
+                "schema": {
+                  "type": "string"
+                }
+              }
             },
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Skill"}
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
               }
             }
           },
-          "400": {"description": "Validation failure", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "401": {"description": "Missing or invalid Authorization header", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "409": {"description": "Skill already registered at this version", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "503": {"description": "Skill registration is disabled (BROKER_SKILLS_API_KEY not configured on server)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "400": {
+            "description": "Validation failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Authorization header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Skill already registered at this version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Skill registration is disabled (BROKER_SKILLS_API_KEY not configured on server)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/v1/skills/{ref}": {
       "get": {
-        "tags": ["Skills"],
+        "tags": [
+          "Skills"
+        ],
         "summary": "Get a specific skill",
         "description": "Returns a single skill. `ref` is either `name` (latest version) or `name@version`. No auth.",
         "operationId": "getSkill",
         "parameters": [
-          {"name": "ref", "in": "path", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Skill record", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Skill"}}}},
-          "404": {"description": "Skill not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Skill record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Skill not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/v1/llm/chat/completions": {
       "post": {
-        "tags": ["LLM Proxy"],
+        "tags": [
+          "LLM Proxy"
+        ],
         "summary": "OpenAI-compatible LLM proxy (worker-only)",
         "description": "Workers call this endpoint with their per-job `llm_token` (issued at job submit time, 10-min TTL). The broker validates the token, checks the account daily cap (50,000 tokens), forwards a **whitelist-stripped** request body to the configured upstream LLM (Ollama, Gemini, OpenAI, etc.) using its private key, records usage three ways (per-token / per-account-per-day / per-job), and returns the upstream response with `_billing` metadata appended. **Max tokens** is capped at 500 regardless of what the caller asks for; **stream** is forced to `false`. The real LLM API key never leaves the broker. Auth: `Authorization: Bearer <llm_token>`.",
         "operationId": "llmProxy",
-        "security": [{"LlmToken": []}],
+        "security": [
+          {
+            "LlmToken": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/ChatCompletionRequest"},
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              },
               "example": {
                 "model": "ignored-broker-picks-model",
-                "messages": [{"role": "user", "content": "Summarize: ..."}],
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Summarize: ..."
+                  }
+                ],
                 "max_tokens": 200
               }
             }
           }
         },
         "responses": {
-          "200": {"description": "LLM response (with `_billing` metadata appended)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChatCompletionResponse"}}}},
-          "400": {"description": "Invalid JSON body", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "401": {"description": "Missing, invalid, or expired LLM token", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "429": {"description": "Daily token cap exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "502": {"description": "Upstream LLM error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "LLM response (with `_billing` metadata appended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired LLM token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Daily token cap exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream LLM error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/v1/llm/usage/{job_id}": {
       "get": {
-        "tags": ["LLM Proxy"],
+        "tags": [
+          "LLM Proxy"
+        ],
         "summary": "Get token usage for a job",
         "description": "Returns the cumulative LLM token usage and call count for a specific job (across all worker proxy calls during the job lifetime). No auth.",
         "operationId": "llmUsage",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^job_[a-f0-9]+$"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^job_[a-f0-9]+$"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Token usage record", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LlmUsage"}}}},
-          "404": {"description": "Job not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Token usage record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmUsage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -336,226 +620,755 @@
     "schemas": {
       "Error": {
         "type": "object",
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "properties": {
-          "error": {"type": "string"},
-          "code": {"type": "string", "description": "Stable machine-readable error code (when applicable)."}
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code (when applicable)."
+          }
         }
       },
       "Health": {
         "type": "object",
-        "required": ["ok", "worker"],
+        "required": [
+          "ok",
+          "worker"
+        ],
         "properties": {
-          "ok": {"type": "boolean"},
-          "worker": {"type": "boolean", "description": "True when an SEV-SNP worker is currently running."}
+          "ok": {
+            "type": "boolean"
+          },
+          "worker": {
+            "type": "boolean",
+            "description": "True when an SEV-SNP worker is currently running.",
+            "example": true
+          }
         }
       },
       "Discover": {
         "type": "object",
-        "required": ["broker_id", "endpoint", "region", "attestation", "pricing", "supported_skills"],
+        "required": [
+          "broker_id",
+          "endpoint",
+          "region",
+          "attestation",
+          "pricing",
+          "supported_skills"
+        ],
         "properties": {
-          "broker_id": {"type": "string", "example": "verdantforged-eu-west-2"},
-          "endpoint": {"type": "string", "format": "uri", "example": "https://verdant.codepilots.co.uk"},
-          "region": {"type": "string", "example": "eu-west-2"},
-          "attestation": {"$ref": "#/components/schemas/Attestation"},
-          "pricing": {"$ref": "#/components/schemas/Pricing"},
-          "supported_skills": {"type": "array", "items": {"type": "string"}, "example": ["code-review", "summarize", "photo-glow-up"]}
+          "broker_id": {
+            "type": "string",
+            "example": "verdantforged-eu-west-1"
+          },
+          "endpoint": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://verdant.codepilots.co.uk"
+          },
+          "region": {
+            "type": "string",
+            "example": "eu-west-1"
+          },
+          "attestation": {
+            "$ref": "#/components/schemas/Attestation"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/Pricing"
+          },
+          "supported_skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "code-review",
+              "summarize",
+              "photo-glow-up"
+            ]
+          }
         }
       },
       "Attestation": {
         "type": "object",
-        "required": ["tee_type", "min_measurement", "worker_attested", "policy_hash", "fetched_at", "attestation_source"],
+        "required": [
+          "tee_type",
+          "min_measurement",
+          "worker_attested",
+          "policy_hash",
+          "fetched_at",
+          "attestation_source"
+        ],
         "properties": {
-          "tee_type": {"type": "string", "enum": ["amd-sev-snp"]},
-          "min_measurement": {"type": "string", "description": "SHA-256 of the worker instance ID (fallback) or the SEV-SNP measurement when available. Pin this to detect worker tampering.", "example": "a299a08dda50e75e9201efce4e117ff6ccda7f2d856b7b7c5edeace147e2b654"},
-          "worker_attested": {"type": "boolean"},
-          "policy_hash": {"type": "string", "description": "SHA-256 of the OpenShell egress policy YAML. Pin this to detect policy widening (egress destinations allowed for the broker)."},
-          "fetched_at": {"type": "string", "format": "date-time"},
-          "report": {"type": "string", "description": "Base64 1184-byte SEV-SNP attestation report. Empty string when running on a non-SEV-SNP region (current demo uses eu-west-2)."},
-          "cert_chain": {"type": "array", "description": "Base64 DER cert chain to AMD root. Empty array when the report is empty.", "items": {"type": "string"}},
-          "enclave_pubkey": {"type": "string", "description": "Worker X25519 public key (base64, 32 bytes). Used by clients to encrypt inputs to the enclave. Empty until the worker has emitted its attestation JSON."},
-          "chip_id": {"type": "string"},
-          "family_id": {"type": "string"},
-          "attestation_source": {"type": "string", "description": "`instance_id_sha256` (fallback), `stub`, or `sev_snp` (real report from snpguest)."}
+          "tee_type": {
+            "type": "string",
+            "enum": [
+              "amd-sev-snp"
+            ]
+          },
+          "min_measurement": {
+            "type": "string",
+            "description": "SHA-256 of the worker instance ID (fallback) or the SEV-SNP measurement when available. Pin this to detect worker tampering.",
+            "example": "a299a08dda50e75e9201efce4e117ff6ccda7f2d856b7b7c5edeace147e2b654"
+          },
+          "worker_attested": {
+            "type": "boolean"
+          },
+          "policy_hash": {
+            "type": "string",
+            "description": "SHA-256 of the OpenShell egress policy YAML. Pin this to detect policy widening (egress destinations allowed for the broker)."
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report": {
+            "type": "string",
+            "description": "Base64 1184-byte SEV-SNP attestation report from the Linux TSM configfs interface."
+          },
+          "cert_chain": {
+            "type": "array",
+            "description": "Base64 DER cert chain to AMD root. Empty array when the report is empty.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enclave_pubkey": {
+            "type": "string",
+            "description": "Worker X25519 public key (base64, 32 bytes). Used by clients to encrypt inputs to the enclave. Empty until the worker has emitted its attestation JSON."
+          },
+          "chip_id": {
+            "type": "string"
+          },
+          "family_id": {
+            "type": "string"
+          },
+          "attestation_source": {
+            "type": "string",
+            "description": "Source of the attestation report. \"tsm_configfs\" = real SEV-SNP via Linux TSM configfs interface."
+          }
         }
       },
       "Pricing": {
         "type": "object",
-        "required": ["model", "lease_per_15min_usd"],
+        "required": [
+          "model",
+          "lease_per_15min_usd"
+        ],
         "properties": {
-          "model": {"type": "string", "enum": ["session-lease"]},
-          "lease_per_15min_usd": {"type": "number", "example": 0.20}
+          "model": {
+            "type": "string",
+            "enum": [
+              "session-lease"
+            ]
+          },
+          "lease_per_15min_usd": {
+            "type": "number",
+            "example": 0.2
+          }
         }
       },
       "JobSubmit": {
         "type": "object",
-        "required": ["client_req_id", "encrypted_skill", "encrypted_data", "requester_sig", "result_pubkey", "stripe_pi_id"],
+        "required": [
+          "client_req_id",
+          "encrypted_skill",
+          "encrypted_data",
+          "requester_sig",
+          "result_pubkey",
+          "stripe_pi_id"
+        ],
         "properties": {
-          "client_req_id": {"type": "string", "maxLength": 128, "description": "Caller-chosen idempotency key. Same value on a retry returns the original job."},
-          "encrypted_skill": {"type": "string", "description": "Skill name (or registered skill identifier). For registered skills, the broker looks up `wasm_manifest_hash` from the catalog; for built-in stubs it falls back to `sha256(skill_name)`.", "example": "summarize"},
-          "encrypted_data": {"type": "string", "description": "Arbitrary opaque input payload (string). Worker treats as plaintext from the enclave perspective."},
-          "requester_sig": {"type": "string", "description": "Hex/0x-prefixed Ed25519 signature over `sha256(skill) | sha256(input) | result_pubkey | stripe_pi_id | timestamp`. Pass `\"0x\"` for the demo path; production deployments can set `BROKER_REQUIRE_REQUESTER_SIG=1` to reject unsigned jobs."},
-          "requester_pubkey": {"type": "string", "description": "Optional Ed25519 public key (hex/base64). When supplied alongside a non-`\"0x\"` `requester_sig`, the broker verifies the signature."},
-          "result_pubkey": {"type": "string", "description": "Base64 32-byte X25519 public key. The worker encrypts the LLM output to this key. Use `\"0x\"` for demo (no encryption)."},
-          "stripe_pi_id": {"type": "string", "pattern": "^pi_", "description": "Stripe PaymentIntent ID. Validated against Stripe (status must be `requires_capture` or `succeeded`). In demo mode (no STRIPE_SECRET_KEY), any `pi_*` string is accepted."},
-          "timestamp": {"type": "string", "description": "ISO 8601 timestamp used in the requester signature canonical payload."},
-          "webhook_url": {"type": "string", "format": "uri", "description": "Optional. When set, the broker POSTs the job result to this URL on finalize. Must be a public HTTPS URL (SSRF blocklist rejects private/loopback/link-local)."}}
+          "client_req_id": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Caller-chosen idempotency key. Same value on a retry returns the original job."
+          },
+          "encrypted_skill": {
+            "type": "string",
+            "description": "Skill name (or registered skill identifier). For registered skills, the broker looks up `wasm_manifest_hash` from the catalog; for built-in stubs it falls back to `sha256(skill_name)`.",
+            "example": "summarize"
+          },
+          "encrypted_data": {
+            "type": "string",
+            "description": "Arbitrary opaque input payload (string). Worker treats as plaintext from the enclave perspective."
+          },
+          "requester_sig": {
+            "type": "string",
+            "description": "Hex/0x-prefixed Ed25519 signature over `sha256(skill) | sha256(input) | result_pubkey | stripe_pi_id | timestamp`. Pass `\"0x\"` for the demo path; production deployments can set `BROKER_REQUIRE_REQUESTER_SIG=1` to reject unsigned jobs."
+          },
+          "requester_pubkey": {
+            "type": "string",
+            "description": "Optional Ed25519 public key (hex/base64). When supplied alongside a non-`\"0x\"` `requester_sig`, the broker verifies the signature."
+          },
+          "result_pubkey": {
+            "type": "string",
+            "description": "Base64 32-byte X25519 public key. The worker encrypts the LLM output to this key. Use `\"0x\"` for demo (no encryption)."
+          },
+          "stripe_pi_id": {
+            "type": "string",
+            "pattern": "^pi_",
+            "description": "Stripe PaymentIntent ID. Validated against Stripe (status must be `requires_capture` or `succeeded`). In demo mode (no STRIPE_SECRET_KEY), any `pi_*` string is accepted."
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "ISO 8601 timestamp used in the requester signature canonical payload."
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Optional. When set, the broker POSTs the job result to this URL on finalize. Must be a public HTTPS URL (SSRF blocklist rejects private/loopback/link-local)."
+          }
         }
-      },
-      "JobSubmitResponse": {
-        "type": "object",
-        "required": ["job_id", "state", "idempotent_replay"],
-        "properties": {
-          "job_id": {"type": "string", "pattern": "^job_[a-f0-9]+$"},
-          "state": {"type": "string", "enum": ["queued", "running", "completed", "failed", "timeout"]},
-          "status_url": {"type": "string", "description": "Relative URL to poll for status. Absent on idempotent replay."},
-          "llm_token": {"type": "string", "description": "Per-job ephemeral token (10-min TTL) the worker uses to call `/v1/llm/chat/completions`. Absent on idempotent replay — the original token from the first submission is still valid."},
-          "idempotent_replay": {"type": "boolean", "description": "True when this response reflects an existing job whose `client_req_id` was already submitted."}
+      }
+    },
+    "JobSubmitResponse": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "state",
+        "idempotent_replay"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^job_[a-f0-9]+$"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "timeout"
+          ]
+        },
+        "status_url": {
+          "type": "string",
+          "description": "Relative URL to poll for status. Absent on idempotent replay."
+        },
+        "llm_token": {
+          "type": "string",
+          "description": "Per-job ephemeral token (10-min TTL) the worker uses to call `/v1/llm/chat/completions`. Absent on idempotent replay \u2014 the original token from the first submission is still valid."
+        },
+        "idempotent_replay": {
+          "type": "boolean",
+          "description": "True when this response reflects an existing job whose `client_req_id` was already submitted."
         }
-      },
-      "Job": {
-        "type": "object",
-        "required": ["job_id", "state", "created_at"],
-        "properties": {
-          "job_id": {"type": "string"},
-          "state": {"type": "string", "enum": ["queued", "running", "completed", "failed", "timeout"]},
-          "created_at": {"type": "string", "format": "date-time"},
-          "started_at": {"type": "string", "format": "date-time", "nullable": true},
-          "finished_at": {"type": "string", "format": "date-time", "nullable": true},
-          "result": {"$ref": "#/components/schemas/JobResult"},
-          "error": {"type": "string", "description": "Failure reason when state is `failed` or `timeout`."},
-          "webhook_url": {"type": "string"},
-          "webhook_status": {"type": "string", "description": "HTTP status of the last webhook delivery (or `error: <msg>`)."},
-          "artifact_count": {"type": "integer"},
-          "payment": {"$ref": "#/components/schemas/Payment"},
-          "stripe_pi_amount_cents": {"type": "integer", "description": "Original held amount in cents (from the Stripe PaymentIntent)."}
+      }
+    },
+    "Job": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "state",
+        "created_at"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "timeout"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "finished_at": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "result": {
+          "$ref": "#/components/schemas/JobResult"
+        },
+        "error": {
+          "type": "string",
+          "description": "Failure reason when state is `failed` or `timeout`."
+        },
+        "webhook_url": {
+          "type": "string"
+        },
+        "webhook_status": {
+          "type": "string",
+          "description": "HTTP status of the last webhook delivery (or `error: <msg>`)."
+        },
+        "artifact_count": {
+          "type": "integer"
+        },
+        "payment": {
+          "$ref": "#/components/schemas/Payment"
+        },
+        "stripe_pi_amount_cents": {
+          "type": "integer",
+          "description": "Original held amount in cents (from the Stripe PaymentIntent)."
         }
-      },
-      "JobResult": {
-        "type": "object",
-        "description": "Result envelope returned by the worker. All hashes are 64-char hex SHA-256. The result is signed twice — once by the worker (Ed25519) and once by the broker (Ed25519) — over the canonical `{result_hash, skill_hash, input_hash}` triple.",
-        "properties": {
-          "job_id": {"type": "string"},
-          "skill": {"type": "string"},
-          "skill_hash": {"type": "string", "description": "SHA-256 of the skill (registered skill's `wasm_manifest_hash`, or `sha256(skill_name)` for built-in stubs)."},
-          "input_hash": {"type": "string"},
-          "output": {"type": "string", "description": "Plaintext LLM output. Redacted to `[encrypted — see result_encrypted]` whenever the worker successfully encrypted the result to `result_pubkey`. Set `BROKER_KEEP_PLAINTEXT_FOR_DEMO=1` to keep the plaintext (demo mode only)."},
-          "model": {"type": "string"},
-          "usage": {"type": "object", "properties": {"prompt_tokens": {"type": "integer"}, "completion_tokens": {"type": "integer"}, "total_tokens": {"type": "integer"}}},
-          "fuel_used": {"type": "integer", "description": "Mock fuel counter (1 unit / ms). Replace with WASM fuel metering when WASM execution is wired up."},
-          "duration_ms": {"type": "integer"},
-          "execution_mode": {"type": "string"},
-          "attestation": {"type": "object", "properties": {"tee_type": {"type": "string"}, "measurement": {"type": "string"}}, "description": "Per-job attestation snapshot."},
-          "result_pubkey": {"type": "string", "description": "Echoes the requester's X25519 pubkey (or `\"0x\"`)."},
-          "result_encrypted": {"type": "string", "description": "Base64 `ephemeral_pubkey_32 || nonce_12 || ciphertext`. Decrypt with ChaCha20-Poly1305 using `X25519(requester_priv, ephemeral_pubkey)` and AAD `verdantforged-result`."},
-          "result_pubkey_ephemeral": {"type": "string", "description": "Base64 32-byte worker ephemeral X25519 pubkey (forward-secrecy: ephemeral keypair is discarded after this job)."},
-          "result_hash": {"type": "string"},
-          "worker_signature": {"type": "string", "description": "Base64 Ed25519 signature over `result_hash | skill_hash | input_hash` using the worker's signing key."},
-          "broker_signature": {"type": "string", "description": "Base64 Ed25519 signature over the same payload using the broker's signing key. Authoritative non-repudiation root."},
-          "billing": {"type": "object", "description": "Echo of `_billing` from the LLM proxy."},
-          "llm_error": {"type": "string", "description": "When the LLM proxy returned 5xx, this is the upstream error string."},
-          "artifacts": {"$ref": "#/components/schemas/ArtifactManifest"}
+      }
+    },
+    "JobResult": {
+      "type": "object",
+      "description": "Result envelope returned by the worker. All hashes are 64-char hex SHA-256. The result is signed twice \u2014 once by the worker (Ed25519) and once by the broker (Ed25519) \u2014 over the canonical `{result_hash, skill_hash, input_hash}` triple.",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "skill": {
+          "type": "string"
+        },
+        "skill_hash": {
+          "type": "string",
+          "description": "SHA-256 of the skill (registered skill's `wasm_manifest_hash`, or `sha256(skill_name)` for built-in stubs)."
+        },
+        "input_hash": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string",
+          "description": "Plaintext LLM output. Redacted to `[encrypted \u2014 see result_encrypted]` whenever the worker successfully encrypted the result to `result_pubkey`. Set `BROKER_KEEP_PLAINTEXT_FOR_DEMO=1` to keep the plaintext (demo mode only)."
+        },
+        "model": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            }
+          }
+        },
+        "fuel_used": {
+          "type": "integer",
+          "description": "Mock fuel counter (1 unit / ms). Replace with WASM fuel metering when WASM execution is wired up."
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "execution_mode": {
+          "type": "string"
+        },
+        "attestation": {
+          "type": "object",
+          "properties": {
+            "tee_type": {
+              "type": "string"
+            },
+            "measurement": {
+              "type": "string"
+            }
+          },
+          "description": "Per-job attestation snapshot."
+        },
+        "result_pubkey": {
+          "type": "string",
+          "description": "Echoes the requester's X25519 pubkey (or `\"0x\"`)."
+        },
+        "result_encrypted": {
+          "type": "string",
+          "description": "Base64 `ephemeral_pubkey_32 || nonce_12 || ciphertext`. Decrypt with ChaCha20-Poly1305 using `X25519(requester_priv, ephemeral_pubkey)` and AAD `verdantforged-result`."
+        },
+        "result_pubkey_ephemeral": {
+          "type": "string",
+          "description": "Base64 32-byte worker ephemeral X25519 pubkey (forward-secrecy: ephemeral keypair is discarded after this job)."
+        },
+        "result_hash": {
+          "type": "string"
+        },
+        "worker_signature": {
+          "type": "string",
+          "description": "Base64 Ed25519 signature over `result_hash | skill_hash | input_hash` using the worker's signing key."
+        },
+        "broker_signature": {
+          "type": "string",
+          "description": "Base64 Ed25519 signature over the same payload using the broker's signing key. Authoritative non-repudiation root."
+        },
+        "billing": {
+          "type": "object",
+          "description": "Echo of `_billing` from the LLM proxy."
+        },
+        "llm_error": {
+          "type": "string",
+          "description": "When the LLM proxy returned 5xx, this is the upstream error string."
+        },
+        "artifacts": {
+          "$ref": "#/components/schemas/ArtifactManifest"
         }
-      },
-      "Payment": {
-        "type": "object",
-        "description": "Stripe PaymentIntent outcome. Surfaced on every finalized job so clients can confirm capture/refund without a second Stripe call.",
-        "required": ["status", "mode"],
-        "properties": {
-          "status": {"type": "string", "enum": ["demo_pending", "demo_succeeded", "demo_refunded", "demo_failed", "demo_skipped", "succeeded", "refunded", "failed", "skipped", "canceled"]},
-          "mode": {"type": "string", "enum": ["live", "demo"]},
-          "amount_cents": {"type": "integer", "description": "Captured amount in cents (succeeded only)."},
-          "stripe_id": {"type": "string", "nullable": true, "description": "Stripe transfer/charge ID."},
-          "held_amount_cents": {"type": "integer", "description": "Original held amount on the PaymentIntent."}
+      }
+    },
+    "Payment": {
+      "type": "object",
+      "description": "Stripe PaymentIntent outcome. Surfaced on every finalized job so clients can confirm capture/refund without a second Stripe call.",
+      "required": [
+        "status",
+        "mode"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "succeeded",
+            "refunded",
+            "failed",
+            "skipped",
+            "canceled",
+            "shortfall_required"
+          ],
+          "description": "Payment lifecycle state. Same values in demo and live mode (the `demo_` prefix is stripped by the daemon before returning the block to clients)."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "live",
+            "demo"
+          ]
+        },
+        "amount_cents": {
+          "type": "integer",
+          "description": "Captured amount in cents (succeeded only)."
+        },
+        "stripe_id": {
+          "type": "string",
+          "nullable": true,
+          "description": "Stripe transfer/charge ID."
+        },
+        "held_amount_cents": {
+          "type": "integer",
+          "description": "Original held amount on the PaymentIntent."
+        },
+        "demo": {
+          "type": "boolean",
+          "description": "True when STRIPE_SECRET_KEY is unset on the server (demo mode). Discriminator for demo vs live."
         }
-      },
-      "ArtifactManifest": {
-        "type": "object",
-        "properties": {
-          "count": {"type": "integer"},
-          "encryption": {"type": "string", "description": "Encryption scheme used for the artifacts (e.g. `x25519-chacha20poly1305`)."},
-          "ttl_hours": {"type": "integer", "description": "S3 object lifetime (24h via lifecycle rule)."},
-          "files": {"type": "array", "items": {"$ref": "#/components/schemas/ArtifactFile"}},
-          "primary": {"$ref": "#/components/schemas/ArtifactFile", "description": "The primary LLM output, always attached as the first file."},
-          "manifest_url": {"type": "string", "description": "Relative URL to fetch this manifest (same shape, with fresh presigned URLs)."},
-          "download_urls": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Map of filename → relative URL. Convenience over iterating `files`."},
-          "note": {"type": "string", "description": "Client-facing note explaining how to decrypt and when the URLs expire."}
+      }
+    },
+    "ArtifactManifest": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "encryption": {
+          "type": "string",
+          "description": "Encryption scheme used for the artifacts (e.g. `x25519-chacha20poly1305`)."
+        },
+        "ttl_hours": {
+          "type": "integer",
+          "description": "S3 object lifetime (24h via lifecycle rule)."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ArtifactFile"
+          }
+        },
+        "primary": {
+          "$ref": "#/components/schemas/ArtifactFile",
+          "description": "The primary LLM output, always attached as the first file."
+        },
+        "manifest_url": {
+          "type": "string",
+          "description": "Relative URL to fetch this manifest (same shape, with fresh presigned URLs)."
+        },
+        "download_urls": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Map of filename \u2192 relative URL. Convenience over iterating `files`."
+        },
+        "note": {
+          "type": "string",
+          "description": "Client-facing note explaining how to decrypt and when the URLs expire."
         }
-      },
-      "ArtifactFile": {
-        "type": "object",
-        "required": ["filename", "content_type", "sha256", "size_bytes", "s3_key", "encrypted"],
-        "properties": {
-          "filename": {"type": "string"},
-          "content_type": {"type": "string"},
-          "sha256": {"type": "string", "description": "SHA-256 of the plaintext file (before encryption)."},
-          "size_bytes": {"type": "integer", "description": "Plaintext size."},
-          "s3_key": {"type": "string"},
-          "encrypted": {"type": "boolean"},
-          "encrypted_size_bytes": {"type": "integer"},
-          "download_url": {"type": "string", "format": "uri", "description": "Presigned S3 GET URL (15-min TTL). Only present on `/v1/jobs/{id}/artifacts` responses."}
+      }
+    },
+    "ArtifactFile": {
+      "type": "object",
+      "required": [
+        "filename",
+        "content_type",
+        "sha256",
+        "size_bytes",
+        "s3_key",
+        "encrypted"
+      ],
+      "properties": {
+        "filename": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "SHA-256 of the plaintext file (before encryption)."
+        },
+        "size_bytes": {
+          "type": "integer",
+          "description": "Plaintext size."
+        },
+        "s3_key": {
+          "type": "string"
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "encrypted_size_bytes": {
+          "type": "integer"
+        },
+        "download_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Presigned S3 GET URL (15-min TTL). Only present on `/v1/jobs/{id}/artifacts` responses."
         }
-      },
-      "SkillManifest": {
-        "type": "object",
-        "required": ["name", "description", "wasm_manifest_hash", "entry_point"],
-        "properties": {
-          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$", "description": "Lowercase slug, 3-64 chars, no leading/trailing dash."},
-          "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "default": "0.1.0"},
-          "description": {"type": "string", "minLength": 1, "maxLength": 512},
-          "wasm_manifest_hash": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "SHA-256 of the WASM binary."},
-          "entry_point": {"type": "string", "pattern": "^[A-Za-z0-9_.]{1,128}$"},
-          "prompt_template": {"type": "string", "maxLength": 32768, "description": "Provide exactly one of `prompt_template` or `wasm_ref`."},
-          "wasm_ref": {"type": "object", "description": "Provide exactly one of `prompt_template` or `wasm_ref`.", "required": ["uri", "size_bytes"], "properties": {"uri": {"type": "string", "maxLength": 512}, "size_bytes": {"type": "integer", "minimum": 1, "maximum": 52428800}}},
-          "resource_limits": {"type": "object", "properties": {
-            "max_fuel": {"type": "integer", "minimum": 1, "maximum": 100000000, "default": 10000000},
-            "max_duration_ms": {"type": "integer", "minimum": 100, "maximum": 600000, "default": 60000},
-            "max_memory_mb": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256}
-          }},
-          "input_schema": {"type": "object"},
-          "output_schema": {"type": "object"}
+      }
+    },
+    "SkillManifest": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "wasm_manifest_hash",
+        "entry_point"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{2,63}$",
+          "description": "Lowercase slug, 3-64 chars, no leading/trailing dash."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "default": "0.1.0"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "wasm_manifest_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "SHA-256 of the WASM binary."
+        },
+        "entry_point": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.]{1,128}$"
+        },
+        "prompt_template": {
+          "type": "string",
+          "maxLength": 32768,
+          "description": "Provide exactly one of `prompt_template` or `wasm_ref`."
+        },
+        "wasm_ref": {
+          "type": "object",
+          "description": "Provide exactly one of `prompt_template` or `wasm_ref`.",
+          "required": [
+            "uri",
+            "size_bytes"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 52428800
+            }
+          }
+        },
+        "resource_limits": {
+          "type": "object",
+          "properties": {
+            "max_fuel": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000000,
+              "default": 10000000
+            },
+            "max_duration_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 600000,
+              "default": 60000
+            },
+            "max_memory_mb": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096,
+              "default": 256
+            }
+          }
+        },
+        "input_schema": {
+          "type": "object"
+        },
+        "output_schema": {
+          "type": "object"
         }
-      },
-      "Skill": {"$ref": "#/components/schemas/SkillManifest"},
-      "ChatCompletionRequest": {
-        "type": "object",
-        "description": "OpenAI-compatible request. The broker whitelists exactly `model`, `messages`, `max_tokens` (capped at 500), and `stream` (forced to false). All other fields are stripped.",
-        "required": ["messages"],
-        "properties": {
-          "model": {"type": "string", "description": "Ignored — the broker always uses its configured model."},
-          "messages": {"type": "array", "items": {"type": "object", "required": ["role", "content"], "properties": {"role": {"type": "string", "enum": ["system", "user", "assistant"]}, "content": {"type": "string"}}}},
-          "max_tokens": {"type": "integer", "minimum": 1, "maximum": 500, "default": 200},
-          "stream": {"type": "boolean", "default": false, "description": "Forced to `false` by the broker."}
+      }
+    },
+    "Skill": {
+      "$ref": "#/components/schemas/SkillManifest"
+    },
+    "ChatCompletionRequest": {
+      "type": "object",
+      "description": "OpenAI-compatible request. The broker whitelists exactly `model`, `messages`, `max_tokens` (capped at 500), and `stream` (forced to false). All other fields are stripped.",
+      "required": [
+        "messages"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Ignored \u2014 the broker always uses its configured model."
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "content"
+            ],
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 200
+        },
+        "stream": {
+          "type": "boolean",
+          "default": false,
+          "description": "Forced to `false` by the broker."
         }
-      },
-      "ChatCompletionResponse": {
-        "type": "object",
-        "description": "OpenAI-compatible chat completion response, plus a `_billing` metadata block appended by the broker.",
-        "properties": {
-          "id": {"type": "string"},
-          "object": {"type": "string"},
-          "created": {"type": "integer"},
-          "model": {"type": "string"},
-          "choices": {"type": "array", "items": {"type": "object"}},
-          "usage": {"type": "object", "properties": {"prompt_tokens": {"type": "integer"}, "completion_tokens": {"type": "integer"}, "total_tokens": {"type": "integer"}}},
-          "_billing": {"type": "object", "properties": {
-            "job_id": {"type": "string"},
-            "account": {"type": "string", "description": "Hashed account identifier (sha256(stripe_pi_id + BROKER_ACCOUNT_HASH_SECRET)[:16])."},
-            "prompt_tokens": {"type": "integer"},
-            "completion_tokens": {"type": "integer"},
-            "total_tokens": {"type": "integer"},
-            "demo_cap": {"type": "integer"}
-          }}
+      }
+    },
+    "ChatCompletionResponse": {
+      "type": "object",
+      "description": "OpenAI-compatible chat completion response, plus a `_billing` metadata block appended by the broker.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "created": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string",
+          "example": "gemini-2.5-flash",
+          "description": "Model the broker forwards to upstream. Configured via BROKER_LLM_MODEL on the server (defaults to gemini-2.5-flash)."
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            }
+          }
+        },
+        "_billing": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "account": {
+              "type": "string",
+              "description": "Hashed account identifier (sha256(stripe_pi_id + BROKER_ACCOUNT_HASH_SECRET)[:16])."
+            },
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            },
+            "demo_cap": {
+              "type": "integer"
+            }
+          }
         }
-      },
-      "LlmUsage": {
-        "type": "object",
-        "required": ["job_id", "llm_tokens_used", "llm_calls"],
-        "properties": {
-          "job_id": {"type": "string"},
-          "llm_tokens_used": {"type": "integer", "description": "Cumulative total tokens used across all worker LLM proxy calls during this job."},
-          "llm_calls": {"type": "integer"}
+      }
+    },
+    "LlmUsage": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "llm_tokens_used",
+        "llm_calls"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "llm_tokens_used": {
+          "type": "integer",
+          "description": "Cumulative total tokens used across all worker LLM proxy calls during this job."
+        },
+        "llm_calls": {
+          "type": "integer"
         }
       }
     }
   }
+}

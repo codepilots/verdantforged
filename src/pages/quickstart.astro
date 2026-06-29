@@ -125,11 +125,11 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
 
 # Returns:
 #   {"job_id": "job_...", "state": "queued",
-#    "status_url": "/v1/jobs/job_...", "llm_token": "llm_...",
+#    "status_url": "/v1/jobs/job_...", "job_access_token": "jobtok_...",
 #    "idempotent_replay": false}
 
-# 2. Poll
-curl -sS ${brokerBase}/v1/jobs/job_...
+# 2. Poll (auth with the job_access_token)
+curl -sS -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_...
 
 # 3. Read the plaintext output (demo mode keeps it in result.output).
 #    Production output is encrypted — use the Python quickstart.
@@ -237,8 +237,9 @@ STRIPE_PI_ID=pi_demo_0001 \\
 #
 #   --- billing ---
 #   {
-#     "status": "demo_succeeded",
-#     "mode":   "demo",
+#     "status":      "succeeded",
+#     "mode":        "demo",
+#     "demo":        true,
 #     "amount_cents": 5,
 #     "held_amount_cents": 5
 #   }`}</code></pre>
@@ -267,7 +268,7 @@ STRIPE_PI_ID=pi_demo_0001 \\
           <p class="mt-3">
             <code class="font-mono text-copper">POST /v1/jobs</code> lands on the t3.small control plane.
             The daemon validates your <code class="font-mono text-copper">stripe_pi_id</code>, generates
-            a per-job <code class="font-mono text-copper">llm_token</code> (10-minute TTL), writes an
+            a per-job <code class="font-mono text-copper">job_access_token</code> (for the client) and an internal <code class="font-mono text-copper">llm_token</code> (10-minute TTL, for the worker), writes an
             envelope to the EFS inbox, and asynchronously launches the TEE worker. Returns 202 immediately
             with <code class="font-mono text-copper">job_id</code> — you don't wait for execution.
           </p>
