@@ -8,6 +8,8 @@
  * DENY network policy, ephemeral storage, and the resource caps.
  */
 import PillarLayout from '~/layouts/PillarLayout.astro';
+
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
 ---
 
 <PillarLayout
@@ -64,8 +66,8 @@ import PillarLayout from '~/layouts/PillarLayout.astro';
     {
       label: 'Sandbox limits in the manifest',
       detail: 'Every skill declares its max_fuel, max_duration_ms, and max_memory_mb in the registration request. The broker stores these and pins them at execution time. /v1/skills lets you list and inspect.',
-      href: `${import.meta.env.BASE_URL}docs#register-skill`,
+      href: `${base}docs#register-skill`,
     },
   ]}
-  next={{ number: '04', name: 'Payment', href: `${import.meta.env.BASE_URL}payment/` }}
+  next={{ number: '04', name: 'Payment', href: `${base}payment/` }}
 />

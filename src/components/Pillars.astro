@@ -36,13 +36,15 @@ interface Pillar {
   evidence: string;
 }
 
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+
 const pillars: Pillar[] = [
   {
     n: '01',
     eyebrow: 'Pillar 01 · Attestation',
     headline: 'The enclave is the only thing you trust.',
     body: 'Every workload runs inside a freshly booted NemoClaw SEV-SNP enclave. The chip itself signs the measurement — a hash of the initial register state plus the loaded runtime. The requester pulls the signed report, verifies the cert chain against the AMD root, and rejects the work if the measurement doesn\'t match the approved binary.',
-    deepDiveHref: `${import.meta.env.BASE_URL}attestation/`,
+    deepDiveHref: `${base}attestation/`,
     deepDiveLabel: 'Read the attestation deep dive →',
     diagram: 'attestation',
     attacks: [
@@ -57,7 +59,7 @@ const pillars: Pillar[] = [
     eyebrow: 'Pillar 02 · Security',
     headline: 'Encryption to silicon, not to policy.',
     body: 'The broker never holds plaintext. Skill source and requester data are encrypted to the enclave\'s public key before they leave the requester\'s machine. The only place decryption happens is inside the measured enclave, where the private key exists transiently for the lifetime of that execution. The result is encrypted to the requester\'s pubkey on the way out.',
-    deepDiveHref: `${import.meta.env.BASE_URL}security/`,
+    deepDiveHref: `${base}security/`,
     deepDiveLabel: 'Read the security deep dive →',
     diagram: 'security',
     attacks: [
@@ -73,7 +75,7 @@ const pillars: Pillar[] = [
     eyebrow: 'Pillar 03 · Sandboxing',
     headline: 'A fresh, fuel-limited enclave for every workload.',
     body: 'The broker provisions a new enclave per execution. There is no shared state between workloads, no host filesystem the WASM can touch, no syscalls the runtime exposes. The execution has a fuel budget (instruction count), a wall-clock cap, and a memory cap — all enforced by the runtime, all measured into the attestation.',
-    deepDiveHref: `${import.meta.env.BASE_URL}sandboxing/`,
+    deepDiveHref: `${base}sandboxing/`,
     deepDiveLabel: 'Read the sandboxing deep dive →',
     diagram: 'sandboxing',
     attacks: [
@@ -89,7 +91,7 @@ const pillars: Pillar[] = [
     eyebrow: 'Pillar 04 · Payment',
     headline: 'The enclave has to sign before the funds move.',
     body: 'Payment is held in a Stripe PaymentIntent escrow at session open. The escrow is in `requires_capture` until the enclave signs a teardown receipt. On signed teardown, Stripe captures the actual cost. On failure, timeout, or attestation mismatch, Stripe refunds the full hold — atomically, automatically.',
-    deepDiveHref: `${import.meta.env.BASE_URL}payment/`,
+    deepDiveHref: `${base}payment/`,
     deepDiveLabel: 'Read the payment deep dive →',
     diagram: 'payment',
     attacks: [
@@ -238,7 +240,7 @@ const pillars: Pillar[] = [
     <p class="vf-eyebrow text-verdigris-deep">For agents</p>
     <p class="mt-3 text-body text-ink vf-text-pretty">
       The four pillars above are the engineering pitch. The
-      <a href={`${import.meta.env.BASE_URL}agents/`} class="vf-link">/agents page</a> is the operator/agent
+      <a href={`${base}agents/`} class="vf-link">/agents page</a> is the operator/agent
       setup: how to set up a broker, how to submit jobs to the live test
       broker at <code class="font-mono text-caption">verdant.codepilots.co.uk</code>,
       and how to register a custom skill.

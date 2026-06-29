@@ -48,6 +48,8 @@ interface Props {
 }
 
 const { pillarNumber, pillarName, title, description, problem, howItWorks, whatStopsWhat, lookAtTheCode, next } = Astro.props;
+
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
 ---
 
 <BaseLayout title={title} description={description}>
@@ -73,9 +75,9 @@ const { pillarNumber, pillarName, title, description, problem, howItWorks, whatS
         who may not know the underlying primitive.
       </p>
       <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
-        <a href={`${import.meta.env.BASE_URL}#pillars`} class="vf-link">← Back to the four pillars</a>
+        <a href={`${base}#pillars`} class="vf-link">← Back to the four pillars</a>
         <span class="mx-3 text-moss/60">·</span>
-        <a href={`${import.meta.env.BASE_URL}agents/`} class="vf-link">For agents →</a>
+        <a href={`${base}agents/`} class="vf-link">For agents →</a>
       </p>
     </section>
 
