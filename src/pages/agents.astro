@@ -1,0 +1,423 @@
+---
+/**
+ * /agents/ — A page for AI agents (and the humans running them) that want
+ * to set up a broker and submit jobs to the test broker.
+ *
+ * The page is written for an agent-reading-it audience: it has the
+ * information in the order an agent needs it (broker URL, schema, how to
+ * register, how to submit, how to poll, how to decrypt), with copy-pasteable
+ * code. Humans reading the same page will find the same information
+ * organised as a how-to.
+ *
+ * The test broker is at https://verdant.codepilots.co.uk — same endpoint
+ * that the /quickstart and /docs pages use. Demo mode is on by default
+ * (no Stripe key on the server), so jobs run with synthetic PaymentIntents
+ * and no real card is charged.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+const brokerBase = 'https://verdant.codepilots.co.uk';
+
+const discoverCurl = `curl -sS ${brokerBase}/v1/discover`;
+const healthCurl   = `curl -sS ${brokerBase}/healthz`;
+const skillsCurl   = `curl -sS ${brokerBase}/v1/skills`;
+
+const submitCurl = `curl -sS -X POST ${brokerBase}/v1/jobs \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "client_req_id":   "agent-first-job-001",
+    "encrypted_skill": "summarize",
+    "encrypted_data":  "The VerdantForged broker is a t3.small control plane that brokers work into an attested TEE worker.",
+    "requester_sig":   "0x",
+    "result_pubkey":   "0x",
+    "stripe_pi_id":    "pi_demo_0001"
+  }'`;
+
+const pollCurl = `JOB_ID="job_..."  # from submit response
+while true; do
+  RESP=$(curl -sS ${brokerBase}/v1/jobs/$JOB_ID)
+  STATE=$(echo "$RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')
+  echo "state=$STATE"
+  case "$STATE" in completed|failed|timeout) echo "$RESP" | python3 -m json.tool; break;; esac
+  sleep 3
+done`;
+
+const registerSkillCurl = `curl -sS -X POST ${brokerBase}/v1/skills \\
+  -H 'Authorization: Bearer $BROKER_SKILLS_API_KEY' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "name":               "my-agent-skill",
+    "version":            "0.1.0",
+    "description":        "A skill for my agent.",
+    "wasm_manifest_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "entry_point":        "handle",
+    "prompt_template":    "You are my-agent-skill. Respond concisely.",
+    "resource_limits":    {"max_fuel": 10000000, "max_duration_ms": 60000, "max_memory_mb": 256}
+  }'`;
+
+const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
+  -H 'Authorization: Bearer $LLM_TOKEN' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 100}'`;
+---
+
+<BaseLayout
+  title="For agents — Set up and run a VerdantForged broker"
+  description="How AI agents (and the humans running them) can set up a VerdantForged broker, register a skill, submit a job to the test broker at verdant.codepilots.co.uk, poll for the result, and decrypt it. End-to-end, with copy-pasteable curl."
+>
+  <SiteNav active="agents" title="For agents" />
+
+  <main>
+    <!-- ── HERO ─────────────────────────────────────────────────── -->
+    <section class="vf-container pt-30 pb-16" aria-labelledby="agents-heading">
+      <p class="vf-eyebrow vf-reveal" data-reveal-delay="0">For agents</p>
+      <h1
+        id="agents-heading"
+        class="vf-heading-section mt-6 max-w-4xl vf-reveal"
+        data-reveal-delay="180"
+        style="transition-delay: 180ms;"
+      >
+        Set up a broker. Submit a job. Get a result.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl vf-reveal" data-reveal-delay="360">
+        Everything an agent needs to run on the VerdantForged broker: the
+        test broker URL, the registration flow, the submit/poll/decrypt
+        loop, and the production setup if you want to host your own.
+      </p>
+      <div class="mt-8 max-w-3xl vf-card border-verdigris/40">
+        <p class="vf-eyebrow text-verdigris-deep">Test broker (live now)</p>
+        <p class="mt-3 font-mono text-body text-ink break-all">
+          {brokerBase}
+        </p>
+        <p class="mt-3 text-body-sm text-ink-soft">
+          Demo mode: no Stripe key is configured on the server, so jobs run
+          with synthetic PaymentIntents. No real card is charged. To use live
+          Stripe test mode, see the <a href="/docs#auth-heading" class="vf-link">auth model</a>
+          on the API reference.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── 1. CHECK IT'S ALIVE ──────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-1-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 1</p>
+      <h2 id="step-1-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Check the broker is alive.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Two endpoints with no auth. Run them in any order to confirm the
+        broker is responding and to discover what it advertises.
+      </p>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">/healthz</h3>
+      <p class="text-body text-ink-soft mt-3 max-w-prose-vf">
+        Returns <code class="font-mono text-copper">{"{ ok: true, worker: true }"}</code>
+        when the daemon is up. <code class="font-mono text-copper">worker</code>
+        is <code class="font-mono text-copper">false</code> at idle (workers
+        are launched on demand and terminate after a configurable buffer).
+      </p>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{healthCurl}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">/v1/discover</h3>
+      <p class="text-body text-ink-soft mt-3 max-w-prose-vf">
+        Broker advertisement: region, pricing, the supported skill catalog,
+        and the worker's attestation block. Pin
+        <code class="font-mono text-copper">attestation.min_measurement</code>
+        to detect worker tampering.
+      </p>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{discoverCurl}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">/v1/skills</h3>
+      <p class="text-body text-ink-soft mt-3 max-w-prose-vf">
+        List every distinct registered skill (latest version of each).
+        Built-in stubs (<code class="font-mono text-copper">code-review</code>,
+        <code class="font-mono text-copper">summarize</code>,
+        <code class="font-mono text-copper">photo-glow-up</code>) are advertised
+        via <code class="font-mono text-copper">/v1/discover</code> and do NOT
+        appear here unless explicitly registered.
+      </p>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{skillsCurl}</code></pre>
+    </section>
+
+    <!-- ── 2. SUBMIT A JOB ──────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-2-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 2</p>
+      <h2 id="step-2-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Submit a job.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        POST to <code class="font-mono text-copper">/v1/jobs</code>. The
+        response is immediate (<code class="font-mono text-copper">202 Accepted</code>)
+        with a <code class="font-mono text-copper">job_id</code> and a per-job
+        <code class="font-mono text-copper">llm_token</code> (10-minute TTL)
+        the worker will use to call the LLM proxy.
+      </p>
+      <p class="text-body text-ink-soft mt-4 max-w-prose-vf">
+        The demo path passes <code class="font-mono text-copper">"0x"</code> for
+        <code class="font-mono text-copper">requester_sig</code> and
+        <code class="font-mono text-copper">result_pubkey</code>. The broker
+        accepts the request, the worker returns the plaintext
+        <code class="font-mono text-copper">output</code> field instead of an
+        encrypted blob. Useful for trying the API; never use in production.
+        See <a href="/quickstart" class="vf-link">/quickstart</a> for the full
+        X25519 + ChaCha20-Poly1305 path.
+      </p>
+      <pre class="vf-code mt-6 max-w-prose-vf"><code>{submitCurl}</code></pre>
+
+      <div class="mt-8 max-w-prose-vf vf-card">
+        <p class="vf-eyebrow text-copper-deep">Idempotency</p>
+        <p class="mt-3 text-body text-ink">
+          Send the same <code class="font-mono text-copper">client_req_id</code>
+          twice and you get the original job back, with
+          <code class="font-mono text-copper">idempotent_replay: true</code>.
+          This is how you make submit retriable on flaky networks without
+          double-charging.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── 3. POLL ──────────────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-3-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 3</p>
+      <h2 id="step-3-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Poll for the result.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        GET <code class="font-mono text-copper">/v1/jobs/&#123;job_id&#125;</code>.
+        While <code class="font-mono text-copper">state</code> is
+        <code class="font-mono text-copper">queued</code> or
+        <code class="font-mono text-copper">running</code>, the result is absent.
+        On <code class="font-mono text-copper">completed</code>, the
+        <code class="font-mono text-copper">result</code> block carries the
+        output (or encrypted blob), model metadata, signatures, and artifact URLs.
+      </p>
+      <pre class="vf-code mt-6 max-w-prose-vf"><code>{pollCurl}</code></pre>
+
+      <p class="mt-8 text-body-sm text-ink-soft max-w-prose-vf">
+        For the full lifecycle (including <code class="font-mono text-copper">failed</code>,
+        <code class="font-mono text-copper">timeout</code>, and the
+        <code class="font-mono text-copper">awaiting_topup</code> state for
+        underfunded jobs), see the <a href="/payment-flow" class="vf-link">payment flow</a>
+        page. The <a href="/docs#get-job" class="vf-link">GET /v1/jobs response shape</a>
+        is in the API reference.
+      </p>
+    </section>
+
+    <!-- ── 4. DECRYPT THE RESULT ────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-4-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 4</p>
+      <h2 id="step-4-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Decrypt the result (production path).
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        In demo mode the worker returns the result in plaintext
+        (<code class="font-mono text-copper">result.output</code>). In production
+        you must have passed an X25519 public key as
+        <code class="font-mono text-copper">result_pubkey</code> at submit time;
+        the worker encrypted the result to that key.
+      </p>
+      <p class="mt-6 text-body text-ink-soft max-w-prose-vf">
+        The full working script — generate keypair, submit, poll, decrypt —
+        is in the <a href="/quickstart" class="vf-link">quickstart</a>. The
+        gist of the decryption:
+      </p>
+      <pre class="vf-code mt-6 max-w-prose-vf"><code>{`blob       = base64.b64decode(result["result_encrypted"])
+eph_pubkey = blob[:32]                # worker's ephemeral X25519 public key
+nonce      = blob[32:44]              # 12-byte ChaCha20-Poly1305 nonce
+ciphertext = blob[44:]                # ciphertext + 16-byte auth tag
+
+shared    = your_priv.exchange(X25519PublicKey.from_public_bytes(eph_pubkey))
+plaintext = ChaCha20Poly1305(shared).decrypt(nonce, ciphertext, b"verdantforged-result")
+payload   = json.loads(plaintext)
+print(payload["output"])`}</code></pre>
+    </section>
+
+    <!-- ── 5. REGISTER A SKILL ───────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-5-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 5 (optional)</p>
+      <h2 id="step-5-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Register your own skill.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        If the broker has <code class="font-mono text-copper">BROKER_SKILLS_API_KEY</code>
+        configured, you can register a new skill (or a new version of an
+        existing one) via <code class="font-mono text-copper">POST /v1/skills</code>.
+        Exactly one of <code class="font-mono text-copper">prompt_template</code>
+        or <code class="font-mono text-copper">wasm_ref</code> must be provided.
+        Resource limits are bounded above the built-in stubs (256 MB / 60 s /
+        10M fuel default) and capped below 4 GB / 600 s / 100M fuel.
+      </p>
+      <pre class="vf-code mt-6 max-w-prose-vf"><code>{registerSkillCurl}</code></pre>
+      <p class="mt-6 text-body-sm text-ink-soft max-w-prose-vf">
+        If the server key is unset, registration is refused with 503
+        <code class="font-mono text-copper">skills_auth_not_configured</code>.
+        The full request/response shape and error codes are in the
+        <a href="/docs#register-skill" class="vf-link">API reference</a>.
+      </p>
+    </section>
+
+    <!-- ── 6. CALL THE LLM PROXY ────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="step-6-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Step 6 (advanced)</p>
+      <h2 id="step-6-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Call the LLM proxy as a worker.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Workers inside the enclave call
+        <code class="font-mono text-copper">/v1/llm/chat/completions</code> with
+        their per-job <code class="font-mono text-copper">llm_token</code>. The
+        broker validates the token, checks the account daily cap (50,000 tokens),
+        forwards a whitelist-stripped body to the configured upstream LLM, records
+        usage three ways (per-token / per-account-per-day / per-job), and returns
+        the upstream response with <code class="font-mono text-copper">_billing</code>
+        metadata appended. The real LLM API key never enters the worker.
+      </p>
+      <pre class="vf-code mt-6 max-w-prose-vf"><code>{llmProxyCurl}</code></pre>
+      <p class="mt-6 text-body-sm text-ink-soft max-w-prose-vf">
+        <code class="font-mono text-copper">max_tokens</code> is capped at
+        500 regardless of what you ask, and <code class="font-mono text-copper">stream</code>
+        is forced to <code class="font-mono text-copper">false</code> by the broker.
+        Full schema in the <a href="/docs#llm-proxy" class="vf-link">API reference</a>.
+      </p>
+    </section>
+
+    <!-- ── RUN YOUR OWN BROKER ──────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="self-host-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow text-copper-deep">Beyond the test broker</p>
+      <h2 id="self-host-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Run your own broker.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        The broker is a small always-on control plane that holds the queue,
+        the per-job LLM tokens, and the Stripe payment lifecycle. The TEE
+        worker is launched on demand and terminated after a configurable
+        idle buffer. For the hackathon, both run on the same NemoClaw image
+        on EC2 m6a.xlarge; in production they scale independently.
+      </p>
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Minimum</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Control plane
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            t3.small. Runs the daemon, the queue, the per-job LLM token
+            issuer, and the Stripe verify/capture/refund lifecycle. Holds no
+            plaintext user data.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Recommended</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            TEE worker
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            EC2 m6a.xlarge with AMD SEV-SNP. Boots in ~6 minutes (NemoClaw
+            image pull), reuses the running instance for subsequent jobs,
+            terminates 10 minutes after the last job completes.
+            Configurable via <code class="font-mono text-copper">IDLE_BUFFER_MINUTES</code>.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Required env</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Server configuration
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            <code class="font-mono text-copper">STRIPE_SECRET_KEY</code> (live
+            mode) · <code class="font-mono text-copper">BROKER_SKILLS_API_KEY</code>
+            (registration) · <code class="font-mono text-copper">LLM_UPSTREAM_*</code>
+            (the real LLM API key, never seen by workers) ·
+            <code class="font-mono text-copper">IDLE_BUFFER_MINUTES</code>.
+            See the deploy README for the full list.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">No required</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            What you do not need
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            No API key for the LLM in the worker image. No plaintext user
+            data on the worker. No persistent storage on the worker. No
+            open ports on the worker. No third-party "observability" or
+            "AI" SDK that phones home.
+          </p>
+        </div>
+      </div>
+      <p class="mt-8 max-w-2xl text-body-sm text-ink-soft">
+        Source code, deploy scripts, and the operator runbook live in the
+        <a
+          href="https://github.com/codepilots/tee-broker-pattern"
+          class="vf-link"
+          rel="noopener"
+        >tee-broker-pattern</a> repository.
+      </p>
+    </section>
+
+    <!-- ── CROSS-LINKS ──────────────────────────────────────────── -->
+    <section class="vf-container section-sm pb-30" aria-labelledby="more-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Read next</p>
+      <h2 id="more-heading" class="vf-heading-section mt-6 max-w-4xl">
+        More for agents and operators.
+      </h2>
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+        <a href="/quickstart" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">5-minute walkthrough</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Quickstart</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Generate an X25519 keypair, submit a job, decrypt the result. End-to-end,
+            working Python, exercised against the live broker.
+          </p>
+        </a>
+        <a href="/docs" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Reference</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">API reference</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Every endpoint, every error code, every auth scheme. OpenAPI 3.1 spec
+            available for download.
+          </p>
+        </a>
+        <a
+          href="https://github.com/codepilots/tee-broker-pattern"
+          class="vf-card hover:border-copper"
+          rel="noopener"
+        >
+          <p class="vf-eyebrow text-copper-deep">Deploy</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Source &amp; deploy</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The Rust control plane, the NemoClaw worker image, the deploy scripts,
+            and the operator runbook. MIT licensed.
+          </p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -100px 0px', threshold: 0.05 });
+
+  setTimeout(() => {
+    document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
+  }, 50);
+</script>

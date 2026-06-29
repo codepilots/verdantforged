@@ -1,0 +1,74 @@
+---
+/**
+ * /attestation/ — Deep dive on Pillar 01: Attestation.
+ *
+ * Audience: a reader who has heard "attestation" but isn't sure what it is,
+ * why it matters, or how the broker does it. This page answers the three
+ * questions in order, then shows the attack/defense matrix and points at
+ * the code.
+ *
+ * Facts grounded in:
+ *   - /v1/discover response (live broker)
+ *   - SECURITY_AUDIT.md §4.3 (attestation verification checks)
+ *   - OpenAPI spec (public/openapi.json)
+ */
+import PillarLayout from '~/layouts/PillarLayout.astro';
+---
+
+<PillarLayout
+  pillarNumber="01"
+  pillarName="Attestation"
+  title="Attestation — What it is, why you need it, how the broker does it"
+  description="A deep dive on hardware attestation, written for readers who may not have seen the primitive before. How AMD SEV-SNP attestation works in the VerdantForged broker, what it actually proves, and what attacks it stops."
+  problem={{
+    heading: 'How do you know the machine is the machine?',
+    body: 'When you run code on someone else\'s computer — any cloud, any serverless function, any container — you are trusting a chain of people you have never met. The cloud operator. Their staff. The supply chain that built the hardware. The kernel running underneath. Any of them could swap your workload for a different one, peek at your data, or lie about what they did. TLS protects data in flight, but it does not protect data in use. Disk encryption protects data at rest, but it does not protect the moment a CPU is touching it.',
+    analogy: 'Imagine you hire a locksmith to open a safe. You watch them work, but you can\'t see what\'s inside the safe or whether they have a second key. Attestation is the locksmith showing you, on a trusted device, a number signed by the safe manufacturer that proves "this is the safe you think it is, and nobody has tampered with it."',
+    withoutBroker: 'You cannot tell the difference between a real enclave running the approved code and a stripped-down virtual machine pretending to be one. The cloud operator (or a bug, or an attacker who got root) can serve you a fake attestation report. There is no protocol-level way to detect the swap.',
+  }}
+  howItWorks={{
+    heading: 'The broker\'s attestation handshake, in three steps.',
+    steps: [
+      {
+        n: '01',
+        title: 'The worker boots inside an AMD SEV-SNP enclave.',
+        body: 'When the broker launches the EC2 worker, the AMD Secure Encrypted Virtualization - Secure Nested Paging (SEV-SNP) hardware isolates it in a measured, encrypted region of memory. The CPU itself records a "measurement" — a SHA-384 hash of the initial register state plus the loaded runtime. The operator of the host (the cloud, the staff with root, the kernel) cannot read or modify what runs inside.',
+      },
+      {
+        n: '02',
+        title: 'The chip signs the measurement with a vendor key.',
+        body: 'When you ask for an attestation report, the AMD firmware produces a signed bundle: the measurement, the chip ID, the TCB version (how patched the silicon is), and a certificate chain back to the AMD root key. The signature is made by the chip — not by the operating system, not by the cloud operator, not by the broker. If anyone has tampered with the runtime, the measurement will not match what the chip signs, and the signature becomes invalid.',
+      },
+      {
+        n: '03',
+        title: 'You (or the broker) verify the signature and compare the measurement.',
+        body: 'The signed bundle is published at GET /v1/discover. To accept the work, a client (or a careful client library) verifies: (a) the certificate chain terminates at the AMD root key, (b) the TCB version is current, (c) the measurement matches the approved runtime hash the client pinned, and (d) the report was produced recently (preventing replay). Only when all four checks pass does the client hand the broker an encrypted payload.',
+      },
+    ],
+  }}
+  whatStopsWhat={[
+    { attack: 'Operator swaps the runtime',                  fix: 'Measurement mismatch — the chip signs what\'s actually loaded, not what the operator claims is loaded' },
+    { attack: 'Operator serves a fabricated attestation',    fix: 'Signature won\'t verify against the AMD root key; cert chain terminates at AMD, not the operator' },
+    { attack: 'Replay of a previous valid attestation',      fix: 'The client issues a nonce, and the chip binds the report to that nonce — old reports are useless' },
+    { attack: 'Stale or revoked silicon (down-level TCB)',   fix: 'TCB version check on every report; the client can pin to a minimum version' },
+    { attack: 'Operator widens the network policy',          fix: 'The worker\'s policy hash is in the report; any change to egress policy changes the hash' },
+    { attack: 'Side-channel leak via the operator',          fix: 'SEV-SNP hardware isolation; the host kernel cannot read enclave memory or registers' },
+  ]}
+  lookAtTheCode={[
+    {
+      label: 'Live attestation block',
+      detail: 'GET /v1/discover on the live broker returns the full attestation: TCB version, measurement, certificate chain, and worker status. Pin the measurement to detect tampering.',
+      href: 'https://verdant.codepilots.co.uk/v1/discover',
+    },
+    {
+      label: 'Attestation verification (Rust core)',
+      detail: 'The broker verifies 5 checks on every attestation report: non-empty, cert chain to AMD/Intel root, measurement matches expected, TCB version ≥ minimum, policy hash matches. See SECURITY_AUDIT.md §4.3 for the test names.',
+      href: 'https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md',
+    },
+    {
+      label: 'What\'s simulated in the hackathon submission',
+      detail: 'The submission uses an instance-id-based attestation source (attestation_source: "instance_id_sha256") because the demo is not on real SEV-SNP hardware. The wire protocol and the verification logic are identical — only the source of the report changes.',
+    },
+  ]}
+  next={{ number: '02', name: 'Security', href: '/security/' }}
+/>

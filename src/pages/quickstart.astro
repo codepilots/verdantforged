@@ -1,0 +1,349 @@
+---
+/**
+ * quickstart.astro — Submit your first job in 5 minutes.
+ *
+ * End-to-end walkthrough: generate X25519 keypair → submit job → poll →
+ * decrypt result. Two paths:
+ *   - Demo path (no encryption, "0x" placeholders) — one curl call.
+ *   - Production path (real X25519 + ChaCha20-Poly1305) — Python script.
+ *
+ * Both paths were exercised against the live broker when this page was
+ * authored. Job IDs / tokens are real from the probe run, scrubbed of
+ * live data after capture.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer    from '~/components/Footer.astro';
+
+const brokerBase = 'https://verdant.codepilots.co.uk';
+
+const pyScript = `#!/usr/bin/env python3
+"""
+VerdantForged quickstart — submit a job, poll, decrypt the result.
+
+Requirements:
+    pip install cryptography requests
+
+Run:
+    BROKER=https://verdant.codepilots.co.uk \\
+    STRIPE_PI_ID=pi_demo_0001 \\
+    python3 quickstart.py
+"""
+import base64
+import json
+import os
+import sys
+import time
+
+import requests
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+BROKER       = os.environ.get("BROKER", "https://verdant.codepilots.co.uk")
+STRIPE_PI_ID = os.environ.get("STRIPE_PI_ID", "pi_demo_0001")
+SKILL        = os.environ.get("SKILL", "summarize")
+INPUT        = os.environ.get(
+    "INPUT",
+    "The broker is a cheap always-on control plane (t3.small) that holds "
+    "the queue, per-job LLM tokens, and Stripe payment lifecycle. The "
+    "TEE worker (m6a.xlarge, AMD SEV-SNP) is launched on demand and "
+    "terminated after a configurable idle buffer."
+)
+
+# 1. Generate a fresh X25519 keypair for this job.
+priv = X25519PrivateKey.generate()
+pub  = priv.public_key().public_bytes(
+    encoding=__import__("cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]).Encoding.Raw,
+    format=__import__("cryptography.hazmat.primitives.serialization", fromlist=["PublicFormat"]).PublicFormat.Raw,
+)
+result_pubkey = base64.b64encode(pub).decode()
+
+# 2. Submit the job.
+resp = requests.post(
+    f"{BROKER}/v1/jobs",
+    json={
+        "client_req_id":   f"quickstart-{int(time.time())}",
+        "encrypted_skill": SKILL,
+        "encrypted_data":  INPUT,
+        "requester_sig":   "0x",        # demo path: no signature
+        "result_pubkey":   result_pubkey,
+        "stripe_pi_id":    STRIPE_PI_ID,
+    },
+    timeout=30,
+)
+resp.raise_for_status()
+submit = resp.json()
+print(f"submitted: job_id={submit['job_id']} state={submit['state']}")
+
+# 3. Poll until done.
+job_id = submit["job_id"]
+while True:
+    r = requests.get(f"{BROKER}/v1/jobs/{job_id}", timeout=30)
+    r.raise_for_status()
+    job = r.json()
+    print(f"  state={job['state']}")
+    if job["state"] in ("completed", "failed", "timeout"):
+        break
+    time.sleep(3)
+
+if job["state"] != "completed":
+    print(f"job did not complete: {job.get('error')}", file=sys.stderr)
+    sys.exit(1)
+
+# 4. Verify and decrypt.
+result = job["result"]
+assert result["skill_hash"] and result["input_hash"] and result["result_hash"], "missing hashes"
+assert result["broker_signature"], "missing broker_signature"
+assert result["result_encrypted"], "result not encrypted (worker may have skipped — check result_encryption_error)"
+
+blob       = base64.b64decode(result["result_encrypted"])
+eph_pubkey = blob[:32]
+nonce      = blob[32:44]
+ciphertext = blob[44:]
+
+shared    = priv.exchange(X25519PublicKey.from_public_bytes(eph_pubkey))
+plaintext = ChaCha20Poly1305(shared).decrypt(nonce, ciphertext, b"verdantforged-result")
+payload   = json.loads(plaintext)
+
+print("\\n--- decrypted output ---")
+print(payload["output"])
+print("\\n--- billing ---")
+print(json.dumps(result.get("billing") or job.get("payment"), indent=2))
+`;
+
+const curlDemo = `# 1. Submit (demo path — "0x" disables encryption + signature)
+curl -sS -X POST ${brokerBase}/v1/jobs \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "client_req_id":   "quickstart-demo-001",
+    "encrypted_skill": "summarize",
+    "encrypted_data":  "The broker is a t3.small control plane ...",
+    "requester_sig":   "0x",
+    "result_pubkey":   "0x",
+    "stripe_pi_id":    "pi_demo_0001"
+  }'
+
+# Returns:
+#   {"job_id": "job_...", "state": "queued",
+#    "status_url": "/v1/jobs/job_...", "llm_token": "llm_...",
+#    "idempotent_replay": false}
+
+# 2. Poll
+curl -sS ${brokerBase}/v1/jobs/job_...
+
+# 3. Read the plaintext output (demo mode keeps it in result.output).
+#    Production output is encrypted — use the Python quickstart.
+`;
+---
+
+<BaseLayout
+  title="Quickstart — Submit your first VerdantForged job in 5 minutes"
+  description="Submit a job to the VerdantForged TEE broker, poll for the result, decrypt the output. Two paths: demo (curl only) and production (X25519 + ChaCha20-Poly1305)."
+>
+  <SiteNav active="quickstart" title="5-minute quickstart" />
+
+  <main>
+    <!-- Header -->
+    <section class="vf-container pt-30 pb-16">
+      <p class="vf-eyebrow">5-minute walkthrough</p>
+      <h1 class="vf-heading-section mt-6 max-w-4xl">Submit your first job.</h1>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Two paths below. The demo path runs in two
+        <code class="font-mono text-copper">curl</code> calls and skips encryption — fine for trying the
+        API. The production path uses real X25519 + ChaCha20-Poly1305 and is what you'd ship.
+      </p>
+      <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
+        For the full endpoint catalog, see the
+        <a href="/docs" class="vf-link">API reference</a>. Looking to set up
+        a broker or wire an agent? Skip to
+        <a href="/agents" class="vf-link">/agents</a>.
+      </p>
+    </section>
+
+    <!-- Demo path -->
+    <section class="vf-container section-sm" aria-labelledby="demo-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Path A</p>
+      <h2 id="demo-heading" class="vf-heading-section mt-6 max-w-4xl">Demo (curl only, no encryption).</h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Send <code class="font-mono text-copper">"0x"</code> for <code class="font-mono text-copper">result_pubkey</code>
+        and <code class="font-mono text-copper">requester_sig</code>. The broker accepts the request and the
+        worker returns the plaintext <code class="font-mono text-copper">output</code> field instead of an
+        encrypted blob. Useful for trying the API; never use in production.
+      </p>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Submit</h3>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{curlDemo.split('# 2. Poll')[0]}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Poll (every 3 s until state is no longer queued/running)</h3>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`# Replace job_... with the job_id from step 1.
+# While state is "queued" or "running" the result is null.
+# On "completed", result.output is the plaintext LLM response.
+while true; do
+  curl -sS ${brokerBase}/v1/jobs/job_... | tee /tmp/job.json
+  grep -q '"state":"completed"' /tmp/job.json && break
+  sleep 3
+done
+cat /tmp/job.json | python3 -m json.tool`}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Read the output</h3>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`# In demo mode the worker does NOT redact result.output.
+# In production output is "[encrypted — see result_encrypted]" —
+# use Path B below for the decryption step.
+curl -sS ${brokerBase}/v1/jobs/job_... | python3 -c '
+import sys, json
+job = json.load(sys.stdin)
+print(job["result"]["output"])
+print("--- billing ---")
+print(json.dumps(job.get("payment"), indent=2))
+'`}</code></pre>
+    </section>
+
+    <!-- Production path -->
+    <section class="vf-container section" aria-labelledby="prod-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Path B</p>
+      <h2 id="prod-heading" class="vf-heading-section mt-6 max-w-4xl">Production (X25519 + ChaCha20-Poly1305).</h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Generate an X25519 keypair, submit the public key as
+        <code class="font-mono text-copper">result_pubkey</code>, then decrypt the worker's encrypted
+        result envelope with your private key.
+      </p>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Install</h3>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`pip install cryptography requests`}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">The script</h3>
+      <p class="text-body text-ink-soft mt-4 max-w-prose-vf">
+        Save this as <code class="font-mono text-copper">quickstart.py</code> and run it. It does the full
+        loop: generate keypair, submit, poll, decrypt.
+      </p>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{pyScript}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Run</h3>
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`# Defaults match the demo path (no Stripe charge).
+BROKER=https://verdant.codepilots.co.uk \\
+STRIPE_PI_ID=pi_demo_0001 \\
+  python3 quickstart.py
+
+# Output:
+#   submitted: job_id=job_d341828... state=queued
+#     state=running
+#     state=running
+#     state=completed
+#
+#   --- decrypted output ---
+#   The broker is a cheap always-on control plane ...
+#
+#   --- billing ---
+#   {
+#     "status": "demo_succeeded",
+#     "mode":   "demo",
+#     "amount_cents": 5,
+#     "held_amount_cents": 5
+#   }`}</code></pre>
+
+      <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Verify the signatures</h3>
+      <p class="text-body text-ink-soft mt-4 max-w-prose-vf">
+        The decrypted envelope contains <code class="font-mono text-copper">worker_signature</code> and
+        <code class="font-mono text-copper">broker_signature</code>, both Ed25519 signatures over the same
+        payload: <code class="font-mono text-copper">result_hash | skill_hash | input_hash</code>. To verify,
+        you need the signers' public keys — the broker's key is not yet exposed via
+        <code class="font-mono text-copper">/v1/discover</code> in the current build. For now, treat
+        <code class="font-mono text-copper">broker_signature</code> as a tamper-evident receipt; full
+        public-key pinning ships with the production attestation endpoint.
+      </p>
+    </section>
+
+    <!-- What just happened -->
+    <section class="vf-container section" aria-labelledby="happened-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Anatomy</p>
+      <h2 id="happened-heading" class="vf-heading-section mt-6 max-w-4xl">What just happened.</h2>
+
+      <div class="mt-12 max-w-prose-vf space-y-10 text-body text-ink-soft">
+        <div>
+          <h3 class="font-display font-semibold text-ink text-display-sm">1. Submit (control plane)</h3>
+          <p class="mt-3">
+            <code class="font-mono text-copper">POST /v1/jobs</code> lands on the t3.small control plane.
+            The daemon validates your <code class="font-mono text-copper">stripe_pi_id</code>, generates
+            a per-job <code class="font-mono text-copper">llm_token</code> (10-minute TTL), writes an
+            envelope to the EFS inbox, and asynchronously launches the TEE worker. Returns 202 immediately
+            with <code class="font-mono text-copper">job_id</code> — you don't wait for execution.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-display font-semibold text-ink text-display-sm">2. Worker boot (cold path)</h3>
+          <p class="mt-3">
+            First job of the day triggers an EC2 <code class="font-mono text-copper">RunInstances</code>
+            call. The worker boots, attaches to EFS, and starts polling the inbox. Cold boot takes ~6
+            minutes (NemoClaw Docker image pull); subsequent jobs reuse the running worker. Worker
+            terminates 10 minutes after the last job completes (configurable via
+            <code class="font-mono text-copper">IDLE_BUFFER_MINUTES</code>).
+          </p>
+        </div>
+        <div>
+          <h3 class="font-display font-semibold text-ink text-display-sm">3. Execute (enclave)</h3>
+          <p class="mt-3">
+            The worker reads the envelope, decrypts it with the per-job LLM token, and either runs the
+            skill's prompt template (via the broker's LLM proxy) or executes the WASM binary. The real
+            LLM API key stays on the control plane — the worker only ever sees ephemeral tokens. Result
+            is encrypted to your <code class="font-mono text-copper">result_pubkey</code> before the
+            worker writes it to the outbox.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-display font-semibold text-ink text-display-sm">4. Finalize (control plane)</h3>
+          <p class="mt-3">
+            The outbox poller reads the result, verifies the worker signature, adds the broker
+            signature, captures (or refunds) the Stripe PaymentIntent based on actual cost, writes the
+            job row, and fires your <code class="font-mono text-copper">webhook_url</code> if set. State
+            transitions to <code class="font-mono text-copper">completed</code> /
+            <code class="font-mono text-copper">failed</code> / <code class="font-mono text-copper">timeout</code>.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-display font-semibold text-ink text-display-sm">5. Poll / decrypt (client)</h3>
+          <p class="mt-3">
+            <code class="font-mono text-copper">GET /v1/jobs/&#123;job_id&#125;</code> returns the finalized
+            record. <code class="font-mono text-copper">result_encrypted</code> carries the encrypted
+            payload plus the worker ephemeral pubkey. You derive the shared secret, decrypt, and verify
+            the Ed25519 signatures.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Next steps -->
+    <section class="vf-container section-sm" aria-labelledby="next-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Next steps</p>
+      <h2 id="next-heading" class="vf-heading-section mt-6 max-w-4xl">Where to go from here.</h2>
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+        <a href="/docs" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Read</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">API reference</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Every endpoint, every error code, every auth scheme. Includes the OpenAPI 3.1 spec download.
+          </p>
+        </a>
+        <a href={`${brokerBase}/v1/discover`} class="vf-card hover:border-copper" rel="noopener">
+          <p class="vf-eyebrow text-copper-deep">Inspect</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">/v1/discover</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            See the live attestation block, supported skills, and pricing. Pin the measurement + policy hash.
+          </p>
+        </a>
+        <a href="/AGENT.md" class="vf-card hover:border-copper" download>
+          <p class="vf-eyebrow text-copper-deep">Agentify</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">AGENT.md</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Hand this to your Hermes Agent. It walks through the protocol, generates keys, and submits a job.
+          </p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>

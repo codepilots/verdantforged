@@ -45,11 +45,12 @@ const lines = [
       style="transition-delay: 900ms;"
     >
       VerdantForged is the runtime that brokers attested execution of agent
-      workloads. You hand it a manifest — a model, a fuel budget, a max lifetime,
-      a payment escrow — and it deploys the work inside a fresh NVIDIA NemoClaw
-      SEV-SNP enclave, with Stripe holding the funds until the enclave confirms
-      teardown. Your model and your data are encrypted to silicon, not to a
-      vendor's policy.
+      workloads. You hand it a job — a skill, an input, a payment escrow —
+      and it deploys the work inside a fresh AMD SEV-SNP enclave on a
+      dedicated TEE worker. Your skill and your data are encrypted to
+      silicon, the enclave signs the teardown receipt, and Stripe only
+      captures on that signed receipt. Try the live test broker or set up
+      your own.
     </p>
 
     <!-- CTAs -->
@@ -64,14 +65,14 @@ const lines = [
           <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </a>
+      <a href="/agents" class="vf-button-ghost">
+        For agents
+      </a>
       <a
         href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
         class="vf-button-ghost"
       >
         Read the security audit
-      </a>
-      <a href="#try" class="vf-button-ghost">
-        Try in your agent
       </a>
     </div>
 

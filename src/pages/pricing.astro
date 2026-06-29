@@ -1,0 +1,265 @@
+---
+/**
+ * pricing.astro — VerdantForged cost model
+ *
+ * Two-line cost model: a fixed lease for enclave lifetime + a per-1K-token
+ * charge for LLM usage. Stripe fees passed through. No marketplace markup,
+ * no per-call surcharge, no seat license.
+ *
+ * Numbers match the live broker (https://verdant.codepilots.co.uk/v1/discover
+ * → pricing.lease_per_15min_usd).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+const LEASE_PER_15MIN_USD = 0.20;
+const PER_1K_TOKENS_USD   = 0.001;
+
+const STRIPE_PCT     = 0.029;
+const STRIPE_FLAT_US = 0.30;
+
+const eg1_minutes  = 30;
+const eg1_tokens_k = 50;
+const eg1_lease    = LEASE_PER_15MIN_USD * (eg1_minutes / 15);
+const eg1_tokens   = PER_1K_TOKENS_USD * eg1_tokens_k;
+const eg1_subtotal = eg1_lease + eg1_tokens;
+const eg1_stripe   = eg1_subtotal * STRIPE_PCT + STRIPE_FLAT_US;
+const eg1_total    = eg1_subtotal + eg1_stripe;
+
+const eg2_minutes  = 60;
+const eg2_tokens_k = 500;
+const eg2_lease    = LEASE_PER_15MIN_USD * (eg2_minutes / 15);
+const eg2_tokens   = PER_1K_TOKENS_USD * eg2_tokens_k;
+const eg2_subtotal = eg2_lease + eg2_tokens;
+const eg2_stripe   = eg2_subtotal * STRIPE_PCT + STRIPE_FLAT_US;
+const eg2_total    = eg2_subtotal + eg2_stripe;
+
+const fmt = (n: number) => n.toFixed(n < 1 ? 4 : 2);
+---
+
+<BaseLayout
+  title="Pricing — VerdantForged TEE Broker"
+  description="Two-line cost model: a fixed lease for enclave lifetime plus a per-1K-token charge for LLM usage. Stripe fees passed through. Free in demo mode on the test broker."
+>
+  <SiteNav active="pricing" title="Pricing" />
+
+  <main>
+    <section class="vf-container pt-30 pb-16" aria-labelledby="pricing-heading">
+      <p class="vf-eyebrow vf-reveal" data-reveal-delay="0">Pricing</p>
+      <h1
+        id="pricing-heading"
+        class="vf-heading-section mt-6 max-w-4xl vf-reveal"
+        data-reveal-delay="180"
+        style="transition-delay: 180ms;"
+      >
+        Pay for the enclave. Not the operator.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl vf-reveal" data-reveal-delay="360">
+        The cost of a VerdantForged job is the cost of the attested enclave
+        plus the cost of the inference that ran inside it. There is no broker
+        markup, no per-call surcharge, no seat license. Numbers below are the
+        model used by the live broker; production rates will be posted before launch.
+      </p>
+    </section>
+
+    <section class="vf-container section-sm" aria-labelledby="model-heading">
+      <p class="vf-eyebrow">Cost model</p>
+      <h2 id="model-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Two line items. One invoice.
+      </h2>
+
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Session lease</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm tabular-nums">
+            ${LEASE_PER_15MIN_USD.toFixed(2)}
+            <span class="text-body text-ink-soft font-normal">/ 15-min slot</span>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Covers the NemoClaw SEV-SNP enclave: attestation, fuel budget,
+            network isolation, and ephemeral key material. Charged pro-rata
+            per second of verified sandbox lifetime. Unused time refunds at
+            session close (see <a href="/payment-flow" class="vf-link">payment flow</a>).
+          </p>
+        </div>
+
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">LLM usage</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm tabular-nums">
+            ${PER_1K_TOKENS_USD.toFixed(3)}
+            <span class="text-body text-ink-soft font-normal">/ 1K tokens</span>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Hermes inference running inside the enclave. Token counts come
+            from the upstream LLM provider's <code class="font-mono text-caption">usage</code>
+            field in the chat-completion response — the broker never
+            estimates or pads. Prompt + completion tokens, billed symmetrically.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-8 max-w-4xl">
+        <p class="text-body-sm text-ink-soft">
+          <span class="vf-eyebrow text-ink-soft">Subtotal</span>
+          = <code class="font-mono">lease_usd + (tokens / 1000) × 0.001</code>.
+          Round to 6 decimal places for accounting. The broker's
+          <code class="font-mono">compute_receipt_cost()</code> in the
+          control plane is the source of truth.
+        </p>
+      </div>
+    </section>
+
+    <section class="vf-container section-sm bg-moss/5 rounded-3xl" aria-labelledby="examples-heading">
+      <p class="vf-eyebrow">Worked examples</p>
+      <h2 id="examples-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Real numbers, not rounded up.
+      </h2>
+
+      <div class="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Small job</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            30-minute session · 50K tokens
+          </p>
+          <table class="mt-6 w-full text-left text-body-sm tabular-nums">
+            <tbody>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Lease ({eg1_minutes} min)</td>
+                <td class="py-3 text-right text-ink">${fmt(eg1_lease)}</td>
+              </tr>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Tokens ({eg1_tokens_k}K × $0.001)</td>
+                <td class="py-3 text-right text-ink">${fmt(eg1_tokens)}</td>
+              </tr>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Stripe fee (2.9% + $0.30)</td>
+                <td class="py-3 text-right text-ink-soft">${fmt(eg1_stripe)}</td>
+              </tr>
+              <tr>
+                <td class="py-3 font-medium text-ink">Total you pay</td>
+                <td class="py-3 text-right font-semibold text-copper-deep tabular-nums">${fmt(eg1_total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Larger job</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            1-hour session · 500K tokens
+          </p>
+          <table class="mt-6 w-full text-left text-body-sm tabular-nums">
+            <tbody>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Lease ({eg2_minutes} min)</td>
+                <td class="py-3 text-right text-ink">${fmt(eg2_lease)}</td>
+              </tr>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Tokens ({eg2_tokens_k}K × $0.001)</td>
+                <td class="py-3 text-right text-ink">${fmt(eg2_tokens)}</td>
+              </tr>
+              <tr class="border-b border-moss/30">
+                <td class="py-3 text-ink-soft">Stripe fee (2.9% + $0.30)</td>
+                <td class="py-3 text-right text-ink-soft">${fmt(eg2_stripe)}</td>
+              </tr>
+              <tr>
+                <td class="py-3 font-medium text-ink">Total you pay</td>
+                <td class="py-3 text-right font-semibold text-copper-deep tabular-nums">${fmt(eg2_total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="mt-8 max-w-2xl text-body-sm text-ink-soft">
+        Sandbox time is measured to the second, not the slot — a 7-minute job
+        costs $0.093, not $0.20. LLM usage is the upstream token count, never
+        a broker estimate.
+      </p>
+    </section>
+
+    <section class="vf-container section-sm" aria-labelledby="stripe-heading">
+      <p class="vf-eyebrow">Stripe fee</p>
+      <h2 id="stripe-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Passed through, not absorbed.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Stripe charges 2.9% + $0.30 per successful US card charge. VerdantForged
+        does not mark this up. You see it as a separate line item in your receipt.
+        On a typical $0.45 job that works out to ~$0.34 of Stripe fee — visible,
+        not hidden.
+      </p>
+      <div class="mt-8 max-w-2xl vf-card">
+        <p class="vf-eyebrow text-verdigris-deep">Why pass through?</p>
+        <p class="text-body-sm text-ink-soft mt-4">
+          Absorbing the fee would mean the broker subsidises your Stripe usage
+          — fine at $0.45, unsustainable at $0.05. Pass-through is honest:
+          your card costs what Stripe charges, and the broker's cut is the
+          lease and the LLM pass-through, nothing else.
+        </p>
+      </div>
+    </section>
+
+    <section class="vf-container section-sm" aria-labelledby="demo-heading">
+      <p class="vf-eyebrow text-copper-deep">Demo mode</p>
+      <h2 id="demo-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Free on the test broker. No card required.
+      </h2>
+      <div class="mt-8 max-w-3xl vf-card border-verdigris/40">
+        <p class="text-body text-ink vf-text-pretty">
+          When <code class="font-mono text-caption bg-moss/20 px-1.5 py-0.5 rounded">STRIPE_SECRET_KEY</code>
+          is unset on the broker (the default state on the test broker at
+          <code class="font-mono text-caption">verdant.codepilots.co.uk</code>),
+          the broker runs in <strong class="text-copper-deep">demo mode</strong>:
+        </p>
+        <ul class="mt-6 space-y-3 text-body-sm text-ink-soft">
+          <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> No real card is charged.</li>
+          <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> <code class="font-mono">verify_payment_intent</code>, <code class="font-mono">capture_payment</code>, and <code class="font-mono">refund_payment</code> all return the same shape as live mode.</li>
+          <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> A <code class="font-mono">payment.mode = "demo"</code> field distinguishes synthetic from real responses.</li>
+          <li class="flex gap-3"><span class="text-verdigris-deep shrink-0 mt-1">✓</span> Every demo-mode lifecycle event is appended to <code class="font-mono">COST_LEDGER.jsonl</code> with a <code class="font-mono">demo_</code> prefix.</li>
+        </ul>
+        <p class="mt-6 text-body-sm text-ink-soft">
+          Demo mode is for evaluation only. The broker falls through to live
+          Stripe test-mode calls automatically when the key is present.
+        </p>
+      </div>
+    </section>
+
+    <section class="vf-container section-sm pb-30" aria-labelledby="billing-heading">
+      <p class="vf-eyebrow">Billing history</p>
+      <h2 id="billing-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Coming after the demo.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Self-serve billing history (per-session receipts, CSV export,
+        Stripe-hosted invoice link) is queued after the hackathon. For now,
+        every receipt is written to <code class="font-mono">COST_LEDGER.jsonl</code>
+        on the broker and visible on the live <code class="font-mono">GET /v1/jobs/&#123;id&#125;</code>
+        response under <code class="font-mono">payment</code>.
+      </p>
+      <p class="mt-6 text-body-sm text-ink-soft">
+        Full payment lifecycle (verify / capture / refund / topup) in
+        <a href="/payment-flow" class="vf-link">/payment-flow</a>. Refund policy
+        and dispute handling in <a href="/terms" class="vf-link">/terms</a>.
+      </p>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -100px 0px', threshold: 0.05 });
+
+  setTimeout(() => {
+    document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
+  }, 50);
+</script>

@@ -5,17 +5,25 @@
  * The footer is the last thing the user reads. It restates the four
  * pillars in one line, names the audit document, and keeps the sponsor
  * credits as text only (pending brand kit audit).
+ *
+ * Updated 2026-06-29: navigation to the four pillar deep-dive pages
+ * and the /agents/ page, in addition to the standard resources.
  */
 
 const year = new Date().getFullYear();
 
 const stack = [
-  { name: 'NVIDIA NemoClaw',   detail: 'SEV-SNP attestation',      color: 'text-verdigris-deep' },
-  { name: 'Stripe MPP',        detail: 'escrow + teardown release', color: 'text-copper' },
-  { name: 'Stripe x402',       detail: 'Base USDC, per-call',       color: 'text-copper' },
+  { name: 'NVIDIA NemoClaw',   detail: 'SEV-SNP attestation',     color: 'text-verdigris-deep' },
+  { name: 'Stripe PaymentIntent', detail: 'verify-then-capture', color: 'text-copper' },
   { name: 'Nous Hermes',       detail: 'inference runtime',         color: 'text-verdigris' },
   { name: 'Hermes Agent',      detail: 'agent runtime',             color: 'text-moss' },
-  { name: 'Nostr',             detail: 'discovery + reputation',    color: 'text-bg/40' },
+];
+
+const pillars = [
+  { name: 'Attestation',  href: '/attestation' },
+  { name: 'Security',     href: '/security'    },
+  { name: 'Sandboxing',   href: '/sandboxing'  },
+  { name: 'Payment',      href: '/payment'     },
 ];
 ---
 
@@ -37,6 +45,25 @@ const stack = [
         </p>
       </div>
 
+      <!-- Four pillars -->
+      <div class="md:col-span-3">
+        <p class="vf-eyebrow text-bg/50">Four pillars</p>
+        <ul class="mt-6 space-y-3 text-body-sm">
+          {pillars.map((p) => (
+            <li>
+              <a href={p.href} class="text-bg/85 hover:text-copper transition-colors">
+                {p.name}
+              </a>
+            </li>
+          ))}
+          <li class="pt-3 border-t border-bg/15 mt-3">
+            <a href="/agents" class="text-bg/85 hover:text-copper transition-colors">
+              For agents →
+            </a>
+          </li>
+        </ul>
+      </div>
+
       <!-- Stack credits (text only) -->
       <div class="md:col-span-4">
         <p class="vf-eyebrow text-bg/50">Stands on</p>
@@ -50,35 +77,26 @@ const stack = [
           ))}
         </ul>
       </div>
-
-      <!-- Links -->
-      <div class="md:col-span-3">
-        <p class="vf-eyebrow text-bg/50">Resources</p>
-        <ul class="mt-6 space-y-3 text-body-sm">
-          <li><a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a></li>
-          <li>
-            <a
-              href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
-              class="text-bg/85 hover:text-copper transition-colors"
-            >Protocol spec</a>
-          </li>
-          <li>
-            <a
-              href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
-              class="text-bg/85 hover:text-copper transition-colors"
-            >Security audit</a>
-          </li>
-          <li>
-            <a
-              href="https://github.com/codepilots/tee-broker-pattern"
-              class="text-bg/85 hover:text-copper transition-colors"
-            >Source code</a>
-          </li>
-        </ul>
-      </div>
     </div>
 
-    <div class="mt-20 pt-10 border-t border-bg/15 flex flex-col sm:flex-row justify-between gap-4 text-caption text-bg/50">
+    <!-- Resources strip -->
+    <div class="mt-20 pt-10 border-t border-bg/15 grid grid-cols-2 sm:grid-cols-4 gap-4 text-caption">
+      <a href="/AGENT.md" class="text-bg/85 hover:text-copper transition-colors">AGENT.md</a>
+      <a
+        href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
+        class="text-bg/85 hover:text-copper transition-colors"
+      >Protocol spec</a>
+      <a
+        href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+        class="text-bg/85 hover:text-copper transition-colors"
+      >Security audit</a>
+      <a
+        href="https://github.com/codepilots/tee-broker-pattern"
+        class="text-bg/85 hover:text-copper transition-colors"
+      >Source code</a>
+    </div>
+
+    <div class="mt-10 flex flex-col sm:flex-row justify-between gap-4 text-caption text-bg/50">
       <p>© {year} VerdantForged · Built by Autumn</p>
       <p class="font-mono uppercase tracking-widest">
         NVIDIA × Stripe × Nous Research · Hackathon 2026

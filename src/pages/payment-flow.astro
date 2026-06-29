@@ -1,0 +1,309 @@
+---
+/**
+ * payment-flow.astro — VerdantForged Stripe lifecycle
+ *
+ * Documents the four lifecycle paths (happy, failure, insufficient funds,
+ * abandoned topup) at a user-visible level. Diagrams are SVG so they render
+ * crisp on mobile without depending on an external library.
+ *
+ * Cross-links:
+ *   - ../tee-broker-docs/site/BROKER_RPC.md  (envelope shapes, plan/approve)
+ *   - ../tee-broker-deploy/SECURITY_REVIEW.md (data retention, key handling)
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+// Topup TTL — the client has this long to add a second PI before the broker
+// refunds the original and abandons the job. Aligns with t_<insufficient_funds>.
+const TOPUP_TTL_MINUTES = 10;
+---
+
+<BaseLayout
+  title="Payment flow — VerdantForged TEE Broker"
+  description="How VerdantForged uses Stripe PaymentIntents: verify before execution, capture the actual cost, refund failures, and handle insufficient funds with a topup window."
+>
+  <SiteNav active="payment-flow" title="Payment flow" />
+
+  <main>
+    <!-- ── HERO ─────────────────────────────────────────────────── -->
+    <section class="vf-container pt-24 pb-16" aria-labelledby="flow-heading">
+      <p class="vf-eyebrow vf-reveal" data-reveal-delay="0">Payment flow</p>
+      <h1
+        id="flow-heading"
+        class="vf-heading-section mt-6 max-w-4xl vf-reveal"
+        data-reveal-delay="180"
+        style="transition-delay: 180ms;"
+      >
+        Verify. Run. Capture — or refund.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl vf-reveal" data-reveal-delay="360">
+        The broker never takes your money before the sandbox has run. On a
+        clean execution we capture the actual cost; on a failure we refund
+        the full hold; on an underfunded run we give you a {TOPUP_TTL_MINUTES}-minute
+        topup window before we close out.
+      </p>
+    </section>
+
+    <!-- ── THE FOUR PATHS ───────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="paths-heading">
+      <p class="vf-eyebrow">Lifecycle paths</p>
+      <h2 id="paths-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Four ways a job ends.
+      </h2>
+
+      <div class="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl">
+
+        <!-- ╭─ Path 1: Happy ─╮ -->
+        <article class="vf-card" aria-labelledby="path-happy">
+          <header class="flex items-center gap-3">
+            <span class="vf-eyebrow text-verdigris-deep">Path 1</span>
+            <h3 id="path-happy" class="font-display font-semibold text-ink text-body-lg">
+              Happy path
+            </h3>
+          </header>
+
+          <pre class="vf-code mt-6 whitespace-pre overflow-x-auto text-caption leading-relaxed"><span class="cmt"># Requester submits a job with a $0.45 PI hold</span>
+client ──POST /v1/jobs──▶ broker
+broker ──verify PI─────▶ Stripe <span class="kw">(status=requires_capture, $0.45 held)</span>
+broker ──attest enclave + run skill
+broker ──<span class="str">capture $actual</span> ($0.43)──▶ Stripe
+stripe ──refund $0.02──▶ client <span class="cmt">(auto, partial refund of unused hold)</span>
+broker ──release result──▶ client
+client sees: <span class="str">succeeded · $0.43 captured · $0.02 refunded</span></pre>
+
+          <p class="mt-6 text-body-sm text-ink-soft">
+            Stripe captures only what was actually used. Unused time refunds
+            automatically — no manual request needed.
+          </p>
+        </article>
+
+        <!-- ╭─ Path 2: Failure ─╮ -->
+        <article class="vf-card" aria-labelledby="path-fail">
+          <header class="flex items-center gap-3">
+            <span class="vf-eyebrow text-verdigris-deep">Path 2</span>
+            <h3 id="path-fail" class="font-display font-semibold text-ink text-body-lg">
+              Failure path
+            </h3>
+          </header>
+
+          <pre class="vf-code mt-6 whitespace-pre overflow-x-auto text-caption leading-relaxed"><span class="cmt"># Job submitted, sandbox starts, skill crashes or enclave fails attestation</span>
+client ──POST /v1/jobs──▶ broker
+broker ──verify PI─────▶ Stripe <span class="kw">($0.45 held)</span>
+broker ──attest + run
+broker ──<span class="str">run failed</span> (fuel_exceeded / signature_invalid / attestation_mismatch)
+broker ──<span class="str">refund $0.45</span>──▶ Stripe
+stripe ──refund ──▶ client <span class="cmt">(full, immediate)</span>
+broker ──release error envelope──▶ client
+client sees: <span class="str">failed · $0.45 refunded · reason in result.err</span></pre>
+
+          <p class="mt-6 text-body-sm text-ink-soft">
+            A failed execution costs nothing. The full hold is released back
+            to your card as a refund — usually instant, always whole. For more
+            details on payment disputes and chargebacks, see our
+            <a href="/terms#dispute-heading" class="vf-link">terms of service</a>.
+          </p>
+        </article>
+
+        <!-- ╭─ Path 3: Insufficient funds ─╮ -->
+        <article class="vf-card border-copper/40" aria-labelledby="path-short">
+          <header class="flex items-center gap-3">
+            <span class="vf-eyebrow text-copper-deep">Path 3</span>
+            <h3 id="path-short" class="font-display font-semibold text-ink text-body-lg">
+              Insufficient funds
+            </h3>
+          </header>
+
+          <pre class="vf-code mt-6 whitespace-pre overflow-x-auto text-caption leading-relaxed"><span class="cmt"># Original PI covers the lease but tokens ran long</span>
+client ──POST /v1/jobs (PI $0.20)──▶ broker
+broker ──verify PI─────▶ Stripe <span class="kw">($0.20 held)</span>
+broker ──attest + run
+broker ──<span class="kw">shortfall detected:</span> actual=$0.32, held=$0.20, gap=$0.12
+broker ──<span class="str">job → awaiting_topup</span> (held $0.20 NOT captured yet)
+broker ──POST /v1/jobs/&#123;id&#125;/topup──▶ client <span class="cmt">(amount=$0.12, deadline=+10min)</span>
+client ──POST /v1/jobs/&#123;id&#125;/topup (new PI $0.12)──▶ broker
+broker ──verify topup PI──▶ Stripe
+broker ──<span class="str">capture $0.20 + capture $0.12</span>──▶ Stripe
+broker ──release result──▶ client
+client sees: <span class="str">succeeded · $0.32 captured across 2 PIs · 1 receipt</span></pre>
+
+          <p class="mt-6 text-body-sm text-ink-soft">
+            The original hold is paused, not captured. You get a {TOPUP_TTL_MINUTES}-minute
+            window to authorise the shortfall. If you don't, we go to Path 4.
+          </p>
+        </article>
+
+        <!-- ╭─ Path 4: Abandoned topup ─╮ -->
+        <article class="vf-card" aria-labelledby="path-abandon">
+          <header class="flex items-center gap-3">
+            <span class="vf-eyebrow text-verdigris-deep">Path 4</span>
+            <h3 id="path-abandon" class="font-display font-semibold text-ink text-body-lg">
+              Abandoned topup
+            </h3>
+          </header>
+
+          <pre class="vf-code mt-6 whitespace-pre overflow-x-auto text-caption leading-relaxed"><span class="cmt"># Path 3's topup never arrives</span>
+job status: <span class="kw">awaiting_topup</span>
+broker waits for topup PI...
+  ⏱ +{TOPUP_TTL_MINUTES} minutes elapse with no topup
+broker ──<span class="str">TTL expiry</span> ──▶ job → abandoned
+broker ──<span class="str">refund $0.20</span>──▶ Stripe <span class="cmt">(original hold released)</span>
+stripe ──refund ──▶ client
+broker ──release abort envelope──▶ client
+client sees: <span class="str">abandoned · $0.20 refunded · topup_window_expired</span>
+
+<span class="cmt"># Result is purged. Worker has already deleted inputs (see security review).</span></pre>
+
+          <p class="mt-6 text-body-sm text-ink-soft">
+            No silent double-charges. If you don't authorise the shortfall in
+            time, the original PI is released and the job is closed out cleanly.
+          </p>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ── TIMELINE DIAGRAM ────────────────────────────────────── -->
+    <section class="vf-container section-sm bg-moss/5 rounded-3xl" aria-labelledby="timeline-heading">
+      <p class="vf-eyebrow">Timeline</p>
+      <h2 id="timeline-heading" class="vf-heading-section mt-6 max-w-4xl">
+        The 7 events that matter.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        A happy-path job produces this audit trail. Every line is signed by
+        the enclave ephemeral key and stored in
+        <code class="font-mono text-caption">COST_LEDGER.jsonl</code>.
+      </p>
+
+      <ol class="mt-10 max-w-3xl space-y-4 text-body-sm font-mono">
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">01</span>
+          <span><span class="text-ink">submit</span> — requester POSTs the job, broker records the PI id</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">02</span>
+          <span><span class="text-ink">verify</span> — Stripe confirms the PI is authable; status <code class="bg-moss/20 px-1 rounded">requires_capture</code></span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">03</span>
+          <span><span class="text-ink">attest</span> — enclave returns SEV-SNP measurement + OpenShell policy hash</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">04</span>
+          <span><span class="text-ink">run</span> — skill executes inside the enclave; tokens accrue per LLM call</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">05</span>
+          <span><span class="text-ink">finalize</span> — broker computes actual cost (lease + tokens)</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">06</span>
+          <span><span class="text-ink">capture</span> — Stripe captures <code class="bg-moss/20 px-1 rounded">$actual</code>; auto-refunds any unused hold</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">07</span>
+          <span><span class="text-ink">release</span> — result envelope (encrypted) + receipt + signed trace go to the requester</span>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ── WHEN A TOPUP IS NEEDED — TIMING ─────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="timing-heading">
+      <p class="vf-eyebrow">Timing</p>
+      <h2 id="timing-heading" class="vf-heading-section mt-6 max-w-4xl">
+        The topup window.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        When the broker detects a shortfall, it pauses capture and posts a
+        topup request to the client. The original hold is locked; nothing has
+        been charged yet.
+      </p>
+
+      <div class="mt-10 max-w-3xl vf-card">
+        <div class="flex items-baseline justify-between">
+          <span class="vf-eyebrow text-verdigris-deep">awaiting_topup</span>
+          <span class="font-mono tabular-nums text-body text-ink">+{TOPUP_TTL_MINUTES}m</span>
+        </div>
+        <div class="mt-4 h-2 rounded-full bg-moss/20 overflow-hidden">
+          <div class="h-full bg-copper" style={`width: 100%; animation: pulse-verdigris 10s linear forwards;`}></div>
+        </div>
+        <p class="mt-4 text-body-sm text-ink-soft">
+          If the client doesn't POST a second PI before the bar runs out,
+          the broker refunds the original hold and the job moves to
+          <code class="font-mono text-caption">abandoned</code>. The result
+          is purged.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── CROSS-LINKS ─────────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="more-heading">
+      <p class="vf-eyebrow">Read next</p>
+      <h2 id="more-heading" class="vf-heading-section mt-6 max-w-4xl">
+        For the protocol-level details.
+      </h2>
+
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Deep dive</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            <a href="/payment" class="hover:text-copper-deep transition-colors">
+              Pillar 04 · Payment →
+            </a>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The Stripe lifecycle explained for a non-expert: verify, run, capture or refund,
+            and the four paths a job can take. Written for a reader who has used Stripe Checkout
+            but is not sure how it composes with hardware attestation.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">API contract</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            <a href="/docs" class="hover:text-copper-deep transition-colors">
+              Broker RPC envelopes →
+            </a>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Request/response shapes for <code class="font-mono">/v1/jobs</code>,
+            <code class="font-mono">/v1/jobs/&#123;id&#125;</code>, and the
+            LLM proxy. Field guarantees, signature coverage, and event
+            streams. Live <a href="/docs" class="vf-link">API reference</a>
+            with curl examples.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">For agents</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            <a href="/agents" class="hover:text-copper-deep transition-colors">
+              Set up &amp; submit a job →
+            </a>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The end-to-end agent setup: check the broker is alive, register
+            a skill, submit a job, poll for the result, decrypt. Copy-pasteable
+            curl, exercised against the live broker.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>
+
+<script>
+  // Scroll-reveal for sections under the sticky nav
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -100px 0px', threshold: 0.05 });
+
+  setTimeout(() => {
+    document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
+  }, 50);
+</script>

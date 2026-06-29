@@ -1,0 +1,71 @@
+---
+/**
+ * /payment/ — Deep dive on Pillar 04: Payment.
+ *
+ * Audience: a reader who has used Stripe Checkout, knows what a PaymentIntent
+ * is, but is not sure how it composes with hardware attestation. This page
+ * explains the verify → run → capture (or refund) lifecycle, the topup window
+ * for underfunded jobs, and the four lifecycle paths.
+ */
+import PillarLayout from '~/layouts/PillarLayout.astro';
+---
+
+<PillarLayout
+  pillarNumber="04"
+  pillarName="Payment"
+  title="Payment — How Stripe and the broker work together"
+  description="A deep dive on the VerdantForged payment lifecycle: verify before execution, capture the actual cost, refund failures, handle insufficient funds with a topup window. Stripe PaymentIntent + TEE attestation."
+  problem={{
+    heading: 'You cannot pay for work that has not happened.',
+    body: 'Most cloud billing trusts the cloud to tell you what you used. The cloud bills you, you pay, and if the bill is wrong, you dispute it after the fact. That works for honest providers. For an untrusted broker, it does not: the broker could bill you for jobs that never ran, jobs that failed, or jobs that cost ten times what they should.',
+    analogy: 'It is the difference between paying a taxi driver up front and paying a taxi driver at the meter. Up front, you have no idea what the trip will cost and no way to verify the meter. At the meter, you watch the distance and time tick up; the fare you pay is the fare the meter says, no more.',
+    withoutBroker: 'You pre-authorize a large hold, the broker runs the job (or pretends to), and bills you the full hold. If the broker overcharges, under-delivers, or just disappears, the only recourse is a chargeback — and the broker has your plaintext the whole time.',
+  }}
+  howItWorks={{
+    heading: 'The broker\'s payment lifecycle, in three phases.',
+    steps: [
+      {
+        n: '01',
+        title: 'Verify. The broker holds your card but does not charge it.',
+        body: 'When you submit a job, you pass a Stripe PaymentIntent ID. The broker calls Stripe to confirm the PI is authable, with status requires_capture. The funds are reserved on your card but not yet captured. The broker has not earned a cent.',
+      },
+      {
+        n: '02',
+        title: 'Run. The enclave executes the work, the cost accrues, the receipt is signed.',
+        body: 'The enclave boots, runs the skill, accrues lease time and LLM tokens. At teardown, the enclave signs a receipt containing the actual fuel used, the actual tokens, the actual lease time, and the enclave\'s measurement. The receipt is part of the result envelope. The requester can verify the receipt against the attestation they accepted.',
+      },
+      {
+        n: '03',
+        title: 'Capture or refund. Stripe moves only the actual amount.',
+        body: 'The broker calls Stripe to capture the actual cost (lease + LLM tokens, no markup). Any unused portion of your hold is auto-refunded. On a failed execution, the broker calls Stripe to refund the full hold. On an underfunded job (your PI was too small), the broker pauses capture, requests a topup, and gives you a 10-minute window to authorise the shortfall before refunding and abandoning.',
+      },
+    ],
+  }}
+  whatStopsWhat={[
+    { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost; the receipt is signed by the enclave and verifiable by you' },
+    { attack: 'Broker charges for a failed job',              fix: 'Failure path refunds the full hold — no partial captures, no fees retained' },
+    { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until the enclave signs a teardown receipt' },
+    { attack: 'You run out of funds mid-job and get overcharged', fix: 'Shortfall pauses capture and asks for a topup with a 10-minute window; no auto-charge beyond what you authorised' },
+    { attack: 'You walk away from the topup request',         fix: 'After 10 minutes the original hold is refunded; the job is abandoned, not silently captured' },
+    { attack: 'Broker keeps your money in case of a dispute', fix: 'Stripe\'s standard dispute process; the broker holds the signed enclave receipt and the trace as evidence' },
+    { attack: 'You cannot tell what you were charged for',    fix: 'Every receipt is published with the Stripe PaymentIntent, charge, transfer, and refund IDs' },
+  ]}
+  lookAtTheCode={[
+    {
+      label: 'The four lifecycle paths',
+      detail: 'Happy / failure / insufficient funds / abandoned topup — full code snippets, timelines, and the 7-event audit trail in /payment-flow.',
+      href: '/payment-flow',
+    },
+    {
+      label: 'Pricing model',
+      detail: 'Two line items: $0.20 per 15-minute session lease (pro-rata per second) + $0.001 per 1K tokens. Stripe fees (2.9% + $0.30) are passed through, not absorbed. Worked examples in /pricing.',
+      href: '/pricing',
+    },
+    {
+      label: 'Terms and refund policy',
+      detail: 'Refunds: full on failure, partial on unused time, topup window for insufficient funds, no refund on completed jobs. See /terms for the full policy.',
+      href: '/terms',
+    },
+  ]}
+  next={{ number: '04', name: 'Payment', href: '/payment/' }}
+/>

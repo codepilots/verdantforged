@@ -1,0 +1,334 @@
+---
+/**
+ * terms.astro — Hackathon Terms of Service stub
+ *
+ * NOT PRODUCTION LEGAL ADVICE. This page exists to set expectations for the
+ * hackathon demo. Refund policy, data retention, and liability are spelled
+ * out clearly. A real deployment would replace this with a reviewed ToS
+ * and a DPA.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+const lastUpdated = '2026-06-28'; // B5 chargeback/ack handling (t_69b52324)
+---
+
+<BaseLayout
+  title="Terms — VerdantForged TEE Broker"
+  description="Hackathon terms stub. Refund policy, data retention, liability, and Stripe ToS cross-reference."
+>
+  <SiteNav active="terms" title="Terms" />
+
+  <main>
+    <!-- ── HERO ─────────────────────────────────────────────────── -->
+    <section class="vf-container pt-24 pb-16" aria-labelledby="terms-heading">
+      <p class="vf-eyebrow vf-reveal" data-reveal-delay="0">Terms</p>
+      <h1
+        id="terms-heading"
+        class="vf-heading-section mt-6 max-w-4xl vf-reveal"
+        data-reveal-delay="180"
+        style="transition-delay: 180ms;"
+      >
+        Hackathon terms.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl vf-reveal" data-reveal-delay="360">
+        This page is a stub written for the NVIDIA × Stripe × Nous Research
+        hackathon, June 2026. It is <strong>not production legal advice</strong>.
+        Last updated {lastUpdated}.
+      </p>
+      <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
+        Looking for the engineering view? See the
+        <a href="/payment" class="vf-link">Payment pillar deep dive</a>
+        for the verify-then-capture lifecycle, or the
+        <a href="/agents" class="vf-link">/agents page</a>
+        for the developer/operator setup.
+      </p>
+      <div class="mt-8 max-w-2xl vf-card border-copper/40">
+        <p class="text-body-sm text-ink-soft vf-text-pretty">
+          By using the VerdantForged demo you accept that the service is
+          provided as-is, that refunds follow the policy below, and that all
+          payments are processed by Stripe under their
+          <a href="https://stripe.com/legal/ssa" class="vf-link">Services Agreement</a>.
+        </p>
+      </div}
+    </section>
+
+    <!-- ── REFUND POLICY ───────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="refund-heading">
+      <p class="vf-eyebrow text-verdigris-deep">Refund policy</p>
+      <h2 id="refund-heading" class="vf-heading-section mt-6 max-w-4xl">
+        When you get your money back.
+      </h2>
+
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Full refund</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Failed jobs
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            If the sandbox fails attestation, the skill runs out of fuel,
+            or the enclave returns a non-success status, the entire held
+            amount is refunded to your card. No partial captures, no
+            application-fee retained.
+          </p>
+        </div}
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Partial refund</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Unused sandbox time
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            On a clean execution, Stripe captures the actual cost and
+            automatically refunds the difference between your hold and the
+            real amount. Pro-rata per second — a 7-minute session in a
+            15-minute slot refunds $0.107.
+          </p>
+        </div}
+        <div class="vf-card border-copper/40">
+          <p class="vf-eyebrow text-copper-deep">Topup window</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Insufficient funds
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            If your original PaymentIntent doesn't cover the actual cost, the
+            broker pauses capture and asks for a topup. You have 10 minutes
+            to authorise the shortfall — if you don't, the original hold is
+            refunded and the job is abandoned.
+          </p>
+        </div}
+        <div class="vf-card border-copper/40">
+          <p class="vf-eyebrow text-copper-deep">Disputes</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Chargebacks
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            If a payment is disputed via Stripe (`charge.dispute.created`), the broker
+            immediately suspends any associated results or active sessions for that
+            payment. Dispute resolution follows Stripe's standard process; results
+            are released only upon successful dispute resolution in the broker's favor.
+          </p>
+        </div}
+        <div class="vf-card border-copper/40">
+          <p class="vf-eyebrow text-copper-deep">No refund</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Completed jobs
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            If the enclave successfully executes the skill, captures the
+            result, and returns it to you, the cost is non-refundable. The
+            guarantee is the result was produced inside an attested enclave
+            running the approved binary — not that you'll like the answer.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DISPUTES & CHARGEBACKS ────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="disputes-heading">
+      <p class="vf-eyebrow text-copper-deep">Disputes</p>
+      <h2 id="disputes-heading" class="vf-heading-section mt-6 max-w-4xl">
+        What happens if you file a chargeback.
+      </h2>
+
+      <div class="mt-10 max-w-4xl vf-card border-copper/40">
+        <p class="vf-eyebrow text-copper-deep">Topup charges are final</p>
+        <p class="mt-4 text-body text-ink vf-text-pretty">
+          <strong>Topup charges are final.</strong> Chargebacks for
+          PaymentIntents that were captured and whose results were
+          delivered — either via a <code class="font-mono text-caption">200 OK</code>
+          from your configured webhook, or via an explicit
+          <code class="font-mono text-caption">POST /v1/jobs/&#123;id&#125;/ack</code>
+          within 24 hours of completion — are <strong>not eligible for
+          refund</strong> and may result in account suspension.
+        </p>
+        <p class="mt-4 text-body-sm text-ink-soft vf-text-pretty">
+          The 24-hour acknowledgement window matches the broker's
+          artifact-retention TTL (S3 lifecycle rule on the
+          <code class="font-mono text-caption">tee-broker-deploy</code>
+          result bucket). Operators keep signed evidence of webhook
+          delivery, acknowledgement timestamps, customer-supplied proof,
+          and source IPs on file for 7 years to support dispute
+          evidence submission under Stripe's ≤120-day chargeback window.
+        </p>
+      </div>
+
+      <div class="mt-6 max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Fraud scoring</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Per-account rolling score
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The broker tracks three signals per account — chargebacks
+            filed, abandoned jobs, and refunded topups — and
+            auto-suspends the account when the total crosses a small
+            threshold. Suspended accounts are blocked at
+            <code class="font-mono text-caption">POST /v1/jobs</code>
+            with HTTP 403
+            <code class="font-mono text-caption">account_suspended</code>.
+            Operators can lift a suspension manually after reviewing
+            the account's dispute history.
+          </p>
+        </div>
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Dispute webhook</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            <code class="font-mono text-caption">charge.dispute.*</code>
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The broker subscribes to Stripe's
+            <code class="font-mono text-caption">charge.dispute.created</code>
+            and <code class="font-mono text-caption">charge.dispute.closed</code>
+            events. Every event is appended to an immutable audit log
+            (<code class="font-mono text-caption">dispute_events</code>)
+            with the full Stripe payload, charge ID, PI ID, evidence
+            deadline, and resolution status. Operators use this log
+            as the source of truth when submitting evidence to Stripe's
+            dispute portal.
+          </p>
+        </div>
+      </div>
+
+      <p class="mt-8 max-w-3xl text-caption text-ink-soft font-mono">
+        Threat model:
+        <a href="../tee-broker-deploy/docs/security/threat-model-topup-flow.md" class="vf-link">docs/security/threat-model-topup-flow.md §5</a>
+        · Acceptance criteria: kanban t_69b52324
+      </p>
+    </section>
+
+    <!-- ── DATA RETENTION ──────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="data-heading">
+      <p class="vf-eyebrow">Data retention</p>
+      <h2 id="data-heading" class="vf-heading-section mt-6 max-w-4xl">
+        What we keep, and for how long.
+      </h2>
+
+      <div class="mt-10 max-w-4xl">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-body-sm">
+            <thead class="border-b border-moss">
+              <tr class="border-b border-moss">
+                <th class="py-3 pr-6 vf-eyebrow text-ink-soft font-medium">What</th>
+                <th class="py-3 pr-6 vf-eyebrow text-ink-soft font-medium">Where</th>
+                <th class="py-3 pr-6 vf-eyebrow text-verdigris-deep font-medium">Lifetime</th>
+                <th class="py-3 vf-eyebrow text-ink-soft font-medium">Encryption</th>
+              </tr>
+            </thead>
+            <tbody class="border-b border-moss/30">
+              <tr class="border-b border-moss/30">
+                <td class="py-4 pr-6 text-ink">Job inputs (request body, encrypted skill)</td>
+                <td class="py-4 pr-6 text-ink-soft">S3 worker inbox</td>
+                <td class="py-4 pr-6 text-verdigris-deep">Deleted by worker immediately after fetch</td>
+                <td class="py-4 text-ink-soft">X25519 + ChaCha20Poly1305 (enclave pubkey)</td>
+              </tr>
+              <tr class="border-b border-moss/30 bg-moss/5">
+                <td class="py-4 pr-6 text-ink">Job results (output envelope)</td>
+                <td class="py-4 pr-6 text-ink-soft">S3 worker outbox</td>
+                <td class="py-4 pr-6 text-verdigris-deep">24h, then auto-purged</td>
+                <td class="py-4 text-ink-soft">X25519 + ChaCha20Poly1305 (requester pubkey)</td>
+              </tr>
+              <tr class="border-b border-moss/30">
+                <td class="py-4 pr-6 text-ink">Cost / receipt ledger</td>
+                <td class="py-4 pr-6 text-ink-soft">Broker <code class="font-mono text-caption">COST_LEDGER.jsonl</code></td>
+                <td class="py-4 pr-6 text-ink-soft">Hackathon: indefinite · production: 90 days</td>
+                <td class="py-4 text-ink-soft">Plaintext (no secrets, just amounts + IDs)</td>
+              </tr>
+              <tr class="border-b border-moss/30 bg-moss/5">
+                <td class="py-4 pr-6 text-ink">Stripe IDs (PI, charge, transfer, refund)</td>
+                <td class="py-4 pr-6 text-ink-soft">Broker SQLite</td>
+                <td class="py-4 pr-6 text-ink-soft">Hackathon: indefinite · production: 7 years (financial records)</td>
+                <td class="py-4 text-ink-soft">Plaintext (Stripe IDs are not secrets)</td>
+              </tr>
+              <tr>
+                <td class="py-4 pr-6 text-ink">Request body (incl. requester_sig, pubkeys)</td>
+                <td class="py-4 pr-6 text-ink-soft">Broker SQLite <code class="font-mono text-caption">jobs.request_body</code></td>
+                <td class="py-4 pr-6 text-copper-deep">Open issue — should expire with the result</td>
+                <td class="py-4 text-ink-soft">Plaintext today (see CQ-3 in security review)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div}
+
+        <p class="mt-8 text-body-sm text-ink-soft">
+          Full audit and threat model: see
+          <a href="../tee-broker-deploy/SECURITY_REVIEW.md" class="vf-link">SECURITY_REVIEW.md</a>.
+          The worker deletes inputs from S3 immediately after fetching them
+          (see <code class="font-mono text-caption">tee-broker-deploy/worker/poller.py</code>).
+          Outputs carry a 24-hour object lifetime policy; presigned download
+          URLs have a 15-minute TTL.
+        </p>
+      </div}
+    </section>
+
+    <!-- ── LIABILITY ───────────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="liability-heading">
+      <p class="vf-eyebrow">Liability</p>
+      <h2 id="liability-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Best-effort service. No SLA.
+      </h2>
+
+      <div class="mt-8 max-w-3xl vf-card">
+        <p class="text-body text-ink vf-text-pretty">
+          The hackathon deployment is a best-effort demonstration. There is
+          <strong>no service-level agreement</strong>, no uptime guarantee,
+          and no commitment that the demo will be available outside the
+          judging window. The broker can be torn down, redeployed, or
+          restarted without notice.
+        </p>
+        <p class="mt-6 text-body-sm text-ink-soft">
+          VerdantForged is provided under the MIT license for the source code;
+          the hosted demo is provided "as is" with no warranty of fitness for
+          any particular purpose. Do not use the hackathon deployment for
+          production workloads, and do not submit data you cannot afford to
+          lose.
+        </p>
+      </div}
+    </section>
+
+    <!-- ── STRIPE & OPEN SOURCE ────────────────────────────────── -->
+    <section class="vf-container section-sm pb-30" aria-labelledby="third-heading">
+      <p class="vf-eyebrow">Stripe &amp; third parties</p>
+      <h2 id="third-heading" class="vf-heading-section mt-6 max-w-4xl">
+        The boring legal stuff.
+      </h2>
+
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Stripe</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            Stripe Services Agreement
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            All card payments are processed by Stripe, Inc. Your relationship
+            for payment processing is with Stripe under their
+            <a href="https://stripe.com/legal/ssa" class="vf-link">Services Agreement</a>.
+            VerdantForged does not see or store your card number — only the
+            PaymentIntent, charge, transfer, and refund IDs that Stripe
+            returns to the broker.
+          </p>
+        </div}
+        <div class="vf-card">
+          <p class="vf-eyebrow text-verdigris-deep">Source code</p>
+          <p class="font-display font-semibold text-ink mt-3 text-body-lg">
+            MIT licensed
+          </p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The broker, the demo site, and the protocol spec are open source
+            under the MIT license. See the
+            <a href="https://github.com/hermes-agent/verdantforged" class="vf-link">GitHub repository</a>
+            for source, build instructions, and the full
+            <a href="/THIRD_PARTY_NOTICES.md" class="vf-link">third-party notices</a>.
+          </p>
+        </div}
+      </div}
+
+      <p class="mt-10 max-w-3xl text-caption text-ink-soft font-mono">
+        Hackathon terms — not production legal advice. Last updated {lastUpdated}.
+      </p>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>

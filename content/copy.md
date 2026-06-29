@@ -5,6 +5,20 @@
 **Persona reference:** VerdantFamiliar — botanical metaphors woven into technical clarity, no fluff.
 **Pivot (2026-06-29):** the product is the **Broker**, not the marketplace. Provider / Requester / marketplace framing removed. Site leads with the four engineering pillars that the broker actually delivers: **Attestation, Security, Sandboxing, Payment**.
 
+**Site map (2026-06-29):**
+
+- `/` — landing page (hero → 4 pillars → how it works → security deep dive → demo → try)
+- `/attestation/` — pillar 01 deep dive
+- `/security/` — pillar 02 deep dive
+- `/sandboxing/` — pillar 03 deep dive
+- `/payment/` — pillar 04 deep dive
+- `/agents/` — for AI agents and the humans running them
+- `/docs` — REST API reference (10 endpoints)
+- `/quickstart` — 5-minute walkthrough
+- `/pricing` — cost model
+- `/payment-flow` — 4 lifecycle paths
+- `/terms` — hackathon terms stub
+
 ---
 
 ## 1. HERO
@@ -15,11 +29,16 @@
 > The broker that runs your agent inside a hardware-attested enclave.
 
 **Subhead:**
-VerdantForged is the runtime that brokers attested execution of agent workloads. You hand it a manifest — a model, a fuel budget, a max lifetime, a payment escrow — and it deploys the work inside a fresh NVIDIA NemoClaw SEV-SNP enclave, with Stripe holding the funds until the enclave confirms teardown. Your model and your data are encrypted to silicon, not to a vendor's policy.
+VerdantForged is the runtime that brokers attested execution of agent
+workloads. You hand it a job — a skill, an input, a payment escrow — and
+it deploys the work inside a fresh AMD SEV-SNP enclave on a dedicated
+TEE worker. Your skill and your data are encrypted to silicon, the
+enclave signs the teardown receipt, and Stripe only captures on that
+signed receipt. Try the live test broker or set up your own.
 
 **Primary CTA:** See the four pillars
-**Secondary CTA:** Read the security audit
-**Tertiary CTA:** Try in your agent
+**Secondary CTA:** For agents
+**Tertiary CTA:** Read the security audit
 
 ---
 
@@ -138,7 +157,12 @@ The broker provisions a new enclave per execution. There is no shared state betw
 **Headline:** The enclave has to sign before the funds move.
 
 **Body:**
-Payment is held in a Stripe MPP escrow at session open. The escrow is keyed to the attestation measurement: if the wrong enclave reports back, the funds don't move. On signed teardown, MPP releases to the model/skill provider. On failure, timeout, or attestation mismatch, MPP refunds the requester — atomically, automatically.
+Payment is held in a Stripe PaymentIntent at session open, in status
+`requires_capture`. The escrow is keyed to the attestation: if the wrong
+enclave reports back, the funds don't move. On signed teardown, Stripe
+captures the actual cost. On failure, timeout, or attestation mismatch,
+Stripe refunds the full hold — atomically, automatically. No
+per-execution charges, no prepaid balance, no broker custody of funds.
 
 **Payment lifecycle:**
 
@@ -161,8 +185,8 @@ enclave work        … fuel burns, network is default-DENY, output is signed �
 
 | Attack | What stops it |
 |---|---|
-| Operator pockets the escrow | Funds are in Stripe MPP, not in the operator's account — operator is not a party to the escrow |
-| Operator releases funds before work completes | MPP release requires a signed teardown receipt; signature requires attested state |
+| Operator pockets the escrow | Funds are in Stripe, not in the operator's account — operator is not a party to the escrow |
+| Operator releases funds before work completes | Capture requires a signed teardown receipt; signature requires attested state |
 | Provider claims more fuel than was burned | Receipt is signed by the enclave; fuel counter is in the receipt |
 | Provider claims a failed execution was successful | Receipt includes the actual enclave output + teardown reason; receipt is signed |
 | Requester denies a successful execution | Receipt is signed by the enclave — requester can verify it independently of the broker |
@@ -171,116 +195,116 @@ enclave work        … fuel burns, network is default-DENY, output is signed �
 
 ---
 
-## 4. HOW IT WORKS (5-step protocol)
+## 9. FOR AGENTS (new)
 
-**Eyebrow:** Five steps
+**Eyebrow:** For agents
 
-**Headline:** Manifest to teardown, end to end.
-
-**Step 1 — Manifest**
-Requester (or model/skill provider) publishes a manifest — model, fuel, max lifetime, attestation requirements. Requester deposits the data hash and creates the MPP escrow.
-
-**Step 2 — Attestation verification**
-Requester pulls the broker's SEV-SNP report. Verifies the cert chain against the AMD root. Confirms the measurement matches the approved runtime. Confirms the TCB version is current.
-
-**Step 3 — Encrypted payload**
-Requester sends encrypted skill, encrypted data, result pubkey, and escrow ID. The broker cannot decrypt anything until the enclave is up.
-
-**Step 4 — Enclave execution**
-Enclave boots, decrypts skill and data, verifies the skill hash, runs the work with fuel limits and no syscalls, encrypts the result to the requester's pubkey, signs the teardown receipt.
-
-**Step 5 — Teardown and payment**
-Sandbox lifetime expires (or task completes). The signed teardown receipt is presented to Stripe MPP. MPP releases to the provider. Encrypted result goes to the requester. On failure, escrow refunds automatically.
-
----
-
-## 5. LIVE DEMO
-
-**Eyebrow:** See it run
-
-**Headline:** The actual broker, on a fresh NemoClaw dev sandbox.
+**Headline:** Set up a broker. Submit a job. Get a result.
 
 **Body:**
-This is the protocol on real hardware. The broker provisions the enclave, runs the work, returns the signed receipt, releases the escrow — all visible in the cast.
+Everything an agent needs to run on the VerdantForged broker: the test
+broker URL, the registration flow, the submit/poll/decrypt loop, and the
+production setup if you want to host your own. Six steps, copy-pasteable
+curl, exercised against the live broker at `https://verdant.codepilots.co.uk`.
 
-[asciinema player — autoplay on scroll, full-width, max 800px tall]
+**The six steps (full detail on `/agents`):**
 
-(Caption: Recorded on a clean NemoClaw dev sandbox. Cast file: ≈ 50 KB. Three terminals, four minutes.)
+1. Check the broker is alive — `/healthz`, `/v1/discover`, `/v1/skills`
+2. Submit a job — `POST /v1/jobs` with the demo path (`"0x"` placeholders)
+3. Poll for the result — `GET /v1/jobs/{job_id}` until state is no longer `queued` or `running`
+4. Decrypt the result — production path uses X25519 + ChaCha20-Poly1305 (see `/quickstart` for the working script)
+5. Register a skill (optional) — `POST /v1/skills` with `BROKER_SKILLS_API_KEY`
+6. Call the LLM proxy (advanced) — `POST /v1/llm/chat/completions` with the per-job `llm_token`
 
----
+**Beyond the test broker — running your own:**
 
-## 6. AUDIT & EVIDENCE
-
-**Eyebrow:** What we actually proved
-
-**Headline:** 51/51 tests pass. Zero clippy warnings. The full audit is public.
-
-**Body:**
-VerdantForged is a hackathon submission, so we publish what we tested and what we didn't. The Rust core (`tee-broker-pattern/`) is auditable; the audit doc lives next to the code and lists every primitive, every property, and every residual risk.
-
-**Audit table:**
-
-| Component | Lines | Tests | Audited |
-|---|---|---|---|
-| `tee-broker-core` | ~450 | 27 | ✅ |
-| `tee-broker-attestation` | ~600 | 9 | ✅ |
-| `tee-broker-runner` | ~200 | 2 | ✅ |
-| `skill-code-review` | ~610 | 12 | ✅ |
-| `integration-tests` | ~220 | 1 | ✅ |
-| **Total** | **~2080** | **51** | |
-
-**Simulated (called out, not hidden):**
-
-- WASM execution → simulated (data passthrough) in the submission; production uses wasmtime with fuel limits and no host imports
-- MPP payment release → simulated in the submission; production calls the real Stripe API with a scoped key
-- SEV-SNP attestation → mock provider in the submission; production reads `/dev/sev/guest` directly
-
-**Production hardening (priority list, post-hackathon):**
-
-| Priority | Item | Effort |
+| Component | Minimum | Notes |
 |---|---|---|
-| P0 | Integrate wasmtime with fuel limits | 2 days |
-| P0 | Real MPP payment release via Stripe API | 1 day |
-| P0 | Real SEV-SNP attestation via `/dev/sev/guest` | 3 days |
-| P1 | Attestation replay protection (challenge-response) | 1 day |
-| P1 | Certificate revocation (OCSP/CRL) | 1 day |
-| P1 | Manifest expiry enforcement | 1 hour |
+| Control plane | t3.small | Daemon, queue, per-job LLM token issuer, Stripe lifecycle |
+| TEE worker | EC2 m6a.xlarge (AMD SEV-SNP) | Cold boot ~6 min, terminates after `IDLE_BUFFER_MINUTES` of idle |
+| Required env | `STRIPE_SECRET_KEY`, `BROKER_SKILLS_API_KEY`, `LLM_UPSTREAM_*` | The real LLM API key never enters the worker |
+| Required infrastructure | AWS account with SEV-SNP-capable instance type, Stripe account (test or live) | Nothing else |
 
 ---
 
-## 7. BUILT ON
+## 10. SECURITY DEEP DIVE (now a section, was a standalone)
+
+The landing page includes a Security section that gives the deep dive
+on the crypto primitives, the input validation, and the attestation
+checks — every claim tied to a test name. See
+`/security` for the beginner-friendly version (problem → how the broker
+does it → what stops what → look at the code).
+
+**Crypto stack (from `tee-broker-pattern/SECURITY_AUDIT.md`):**
+
+| Layer | Algorithm | Why | Test |
+|---|---|---|---|
+| Key exchange | X25519 ECDH, ephemeral | Forward secrecy per execution | test_ecies_roundtrip |
+| AEAD | AES-256-GCM | Confidentiality + integrity | test_aes_gcm_tamper_detection |
+| KDF | HKDF-SHA256 with context binding | Context separates channels | test_wrong_context_fails |
+| Manifest signature | Ed25519 (RFC 8032) | Compact, constant-time | test_manifest_signature_roundtrip |
+| Hash | SHA-256 | NIST standard | test_sha256_known_vector |
+
+**Production crypto stack (the live broker uses this):**
+
+| Layer | Algorithm | Why |
+|---|---|---|
+| Key exchange | X25519 (per-job ephemeral) | Forward secrecy per execution |
+| AEAD | ChaCha20-Poly1305 | Fast authenticated encryption, constant-time |
+| Context tag | `b"verdantforged-result"` | Domain separation, prevents key reuse across message types |
+
+**ExecutionRequest validation:**
+
+- `skill_encrypted` not empty · `data_encrypted` not empty
+- `max_fuel` in (0, 100M] · `max_duration_ms` in (0, 120s]
+- `mpp_escrow_id` not empty · payload size ≤ 10 MB
+
+**Attestation verification (6 checks):**
+
+- Non-empty attestation
+- Cert chain → AMD/Intel root
+- Measurement matches expected
+- TCB version ≥ minimum
+- Policy hash matches
+- Serialization roundtrip
+
+51/51 tests pass. Zero clippy warnings. Two `unsafe` blocks, both
+correctly annotated for the WASM FFI surface.
+
+---
+
+## 11. BUILT ON
 
 **Eyebrow:** Stands on the shoulders of
 
 | Layer | Component | Vendor |
 |---|---|---|
 | Attestation | NemoClaw SEV-SNP enclaves | NVIDIA |
-| Payments (crypto) | MPP (Solana USDC, Tempo USDC) | Stripe |
-| Payments (fiat) | MPP via Shared Payment Tokens (SPT) | Stripe |
-| Payments (HTTP 402) | x402 (Base USDC) | Stripe |
+| Payments | PaymentIntent verify-then-capture (MPP variant in audit) | Stripe |
 | Inference runtime | Hermes-4-70B / Hermes-4-405B | Nous Research |
 | Agent runtime | Hermes Agent | Nous Research |
-| Discovery | Nostr event kinds, Ed25519 reputation | open protocol |
 
 ---
 
-## 8. CTA — TRY IT
+## 12. CTA — TRY IT
 
 **Eyebrow:** Install the broker
 
 **Headline:** Three ways to run it.
 
-**(A) Read the spec and the audit**
+**(A) Read the spec + audit**
 - `SPEC.md` — the protocol, end to end
 - `SECURITY_AUDIT.md` — the 51-test audit, including what's simulated
 
 **(B) Paste this prompt into your Hermes chat:**
 ```
-Install the VerdantForged skill from https://verdantforged.pages.dev/AGENT.md and walk me through the four pillars.
+Install the VerdantForged broker from https://verdantforged.pages.dev/AGENT.md and walk me through the four pillars.
 ```
 
 **(C) Direct download:**
 [Download AGENT.md] (right-click → Save Link As)
+
+**For agents:** see `/agents` for the end-to-end setup against the live test broker.
 
 ---
 
@@ -289,5 +313,7 @@ Install the VerdantForged skill from https://verdantforged.pages.dev/AGENT.md an
 - VerdantForged © 2026 — open source under MIT
 - Hackathon: NVIDIA × Stripe × Nous Research — Hermes Agent Accelerated Business Hackathon
 - Built by Autumn — see the spec, the audit, the code
+- Four pillars → /attestation, /security, /sandboxing, /payment
+- For agents → /agents
 - Three links: spec / audit / source
-- "The guarantees are made by NVIDIA NemoClaw, Stripe MPP, and the protocol itself — not by us."
+- "The guarantees are made by NVIDIA NemoClaw, Stripe, and the protocol itself — not by us."

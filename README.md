@@ -1,8 +1,11 @@
 # VerdantForged — Marketing Site
 
-Apple-style single-page marketing site for the [VerdantForged TEE Broker Agent Marketplace](../tee-broker-docs/SPEC.md). This directory contains:
+Apple-style marketing site for the [VerdantForged TEE broker](https://verdant.codepilots.co.uk). This directory contains:
 
-- The marketing site itself (Astro + Tailwind, single long page)
+- The marketing site itself (Astro + Tailwind, single long landing page)
+- Four pillar deep-dive pages (`/attestation`, `/security`, `/sandboxing`, `/payment`)
+- The `/agents` page — for AI agents and the humans running them (setup, test broker access, submit jobs)
+- The API reference (`/docs`), quickstart (`/quickstart`), pricing (`/pricing`), payment flow (`/payment-flow`), terms (`/terms`)
 - `.Agent.md` and `AGENT.md` — runnable instructions for AI agents (agent-first design)
 - `.well-known/agent.json` — A2A discovery manifest
 - `PROPOSAL.md` — the design rationale, palette decisions, and build plan
@@ -17,53 +20,49 @@ npm run build        # static export to ./dist
 npm run preview      # preview the build
 ```
 
+## Live test broker
+
+The broker is live at `https://verdant.codepilots.co.uk`. Demo mode is on by default
+(no real card is charged). See the [agents page](https://verdantforged.pages.dev/agents)
+for how to set up an agent and submit jobs.
+
 ## Deployment
 
-Configured for Cloudflare Pages at **verdantforged.pages.dev**.
+Configured for Cloudflare Pages at **verdantforged.pages.dev** with a GitHub
+Pages fallback. Push to `codepilots/verdantforged` on GitHub and the workflow
+at `.github/workflows/pages.yml` rebuilds the site. PR previews are served
+via the same workflow.
 
-### Automatic deploy via GitHub Actions
+## Site structure
 
-1. Push to `codepilots/verdantforged` on GitHub (already configured as remote `github`)
-2. Add two secrets in repo Settings → Secrets and variables → Actions:
-   - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with `Cloudflare Pages: Edit` permission
-     (create at https://dash.cloudflare.com/profile/api-tokens → Create Token → Edit Cloudflare Pages)
-   - `CLOUDFLARE_ACCOUNT_ID` — found on the Cloudflare dashboard right sidebar
-3. Create the Cloudflare Pages project (one-time):
-   ```bash
-   npx wrangler pages project create verdantforged --production-branch main
-   ```
-4. Every push to `main` triggers the GitHub Actions workflow at `.github/workflows/deploy.yml`,
-   which builds the site and deploys to `https://verdantforged.pages.dev`.
-   PRs get preview URLs at `https://<branch>.verdantforged.pages.dev`.
-
-### Manual deploy
-
-```bash
-npm run build                                  # build to ./dist
-npx wrangler login                             # one-time OAuth
-npx wrangler pages deploy dist --project-name verdantforged
 ```
-
-### Files controlling Cloudflare behavior
-
-- `wrangler.toml` — Pages project config, build output dir
-- `public/_headers` — security headers (X-Frame-Options, CSP), cache policy per asset type
-- `public/_redirects` — friendly URLs for agent discovery (`/agent.json` → `/.well-known/agent.json`)
-
-### Custom domain
-
-Once `verdantforged.com` is registered (10 TLDs are still available as of 2026-06-19),
-add it in Cloudflare Pages → Custom domains. Both `verdantforged.com` and
-`verdantforged.pages.dev` will serve the same content; set a 301 redirect from
-`pages.dev` to the custom domain in `_redirects`.
+/                       ← landing page (hero → 4 pillars → how it works → security deep dive → demo → try)
+/attestation/           ← pillar 01 deep dive
+/security/              ← pillar 02 deep dive
+/sandboxing/            ← pillar 03 deep dive
+/payment/               ← pillar 04 deep dive
+/agents/                ← for AI agents: setup, test broker access, submit jobs
+/docs                   ← REST API reference (10 endpoints)
+/quickstart             ← 5-minute walkthrough (working Python script)
+/pricing                ← cost model (session lease + per-1K-token + Stripe fees)
+/payment-flow           ← the 4 lifecycle paths (happy / failure / short funds / abandoned topup)
+/terms                  ← hackathon terms stub
+/AGENT.md               ← agent-runnable instructions (mirrored as /.Agent.md)
+/openapi.json           ← OpenAPI 3.1 spec for the live broker
+/.well-known/agent.json ← A2A discovery manifest
+```
 
 ## For humans
 
-Read `PROPOSAL.md` first. The visual identity, build order, and open decisions are all there. The skill `verdantforged-marketing-site` in `~/.hermes/skills/` carries the same context.
+Read `PROPOSAL.md` first. The visual identity, build order, and open decisions
+are all there. The `verdantforged-marketing-site` skill in `~/.hermes/skills/`
+carries the same context.
 
 ## For agents
 
-If you are an AI agent reading this README, your entry point is [`AGENT.md`](./AGENT.md) — the same file is also discoverable as `.Agent.md`. Follow the instructions there to install the VerdantForged skill.
+If you are an AI agent reading this README, your entry point is
+[`AGENT.md`](./AGENT.md) — the same file is also discoverable as `.Agent.md`.
+Follow the instructions there to use the test broker or set up your own.
 
 ## Project layout
 
@@ -73,18 +72,20 @@ tee-broker-site/
 ├── AGENT.md                  ← agent instructions (mirrored, more discoverable)
 ├── README.md                 ← this file
 ├── PROPOSAL.md               ← design rationale + palette + build plan
+├── CHANGELOG.md              ← change history
 ├── astro.config.mjs          ← Astro configuration
 ├── tailwind.config.ts        ← Tailwind config with locked palette tokens
 ├── tsconfig.json
 ├── package.json
 ├── public/
 │   ├── .well-known/agent.json
+│   ├── openapi.json
 │   └── favicon.svg
 ├── src/
 │   ├── layouts/BaseLayout.astro
-│   ├── pages/index.astro
-│   ├── pages/api/agent-init.ts
-│   ├── components/
+│   ├── layouts/PillarLayout.astro   ← shared shell for the 4 pillar deep dives
+│   ├── pages/                       ← 12 routes total
+│   ├── components/                  ← Hero, Pillars, Footer, etc.
 │   └── styles/global.css
 └── content/
     └── copy.md               ← all marketing copy in one place
@@ -105,8 +106,7 @@ MIT — same as the underlying tee-broker-pattern.
 
 This project stands on the work of many people and projects. In particular:
 
-- **[browser-ai](https://github.com/jakobhoeg/browser-ai)** by [Jakob Hoeg](https://github.com/jakobhoeg) — the JSON tool-call parser and markdown-fence system prompt pattern in `src/lib/json-tool-parser.ts` are adapted from his Vercel AI SDK WebLLM provider (Apache 2.0). Without his workaround for WebLLM 0.2.78's broken tool-call parser, the in-browser agent demo would not have working tool calling.
-- **[WebLLM](https://github.com/mlc-ai/web-llm)** by the [MLC-AI](https://mlc.ai/) team — the in-browser LLM runtime that powers Hermes Portable. Apache 2.0.
-- **[Pyodide](https://pyodide.org/)** — CPython compiled to WebAssembly, used to run the Hermes Portable Python skills in the browser. MPL-2.0.
-- **[Nous Research](https://nousresearch.com/)** — the Hermes-3-Llama-3.1-8B model and the broader Hermes agent architecture.
-- **[NVIDIA NemoClaw](https://developer.nvidia.com/)**, **[Stripe](https://stripe.com/)** — the SEV-SNP attestation and x402 micro-payment infrastructure that the VerdantForged broker runs on.
+- **[NVIDIA NemoClaw](https://developer.nvidia.com/)** — the AMD SEV-SNP hardware isolation that the broker runs inside
+- **[Stripe](https://stripe.com/)** — the PaymentIntent verify-then-capture lifecycle
+- **[Nous Research](https://nousresearch.com/)** — Hermes inference and the broader Hermes agent architecture
+- All the open source libraries: Astro, Tailwind, Inter, JetBrains Mono

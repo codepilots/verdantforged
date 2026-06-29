@@ -1,0 +1,78 @@
+---
+/**
+ * SiteNav — global nav for informational pages.
+ * Used by /docs, /quickstart, /pricing, /payment-flow, /terms, /agents, and the
+ * 4 pillar deep-dive pages. The landing page is a single scroll-driven hero
+ * and does not use this nav.
+ *
+ * Apple-clean: small caps eyebrow links, verdigris active state.
+ */
+interface Props {
+  /** Path of the current page. Used to set the active state. */
+  active?:
+    | 'home'
+    | 'pillars'
+    | 'attestation'
+    | 'security'
+    | 'sandboxing'
+    | 'payment'
+    | 'agents'
+    | 'pricing'
+    | 'payment-flow'
+    | 'docs'
+    | 'quickstart'
+    | 'terms';
+  /** Optional title shown on the right (e.g. page eyebrow). */
+  title?: string;
+}
+
+const { active = 'home', title } = Astro.props;
+
+const links = [
+  { href: '/',                 label: 'Overview',      key: 'home'         },
+  { href: '/attestation/',     label: 'Attestation',   key: 'attestation'  },
+  { href: '/security/',        label: 'Security',      key: 'security'     },
+  { href: '/sandboxing/',      label: 'Sandboxing',    key: 'sandboxing'   },
+  { href: '/payment/',         label: 'Payment',       key: 'payment'      },
+  { href: '/agents/',          label: 'For agents',    key: 'agents'       },
+  { href: '/pricing',          label: 'Pricing',       key: 'pricing'      },
+  { href: '/docs',             label: 'API',           key: 'docs'         },
+] as const;
+---
+
+<header
+  class="sticky top-0 z-30 bg-bg/90 backdrop-blur-sm border-b border-moss/30"
+  aria-label="Site navigation"
+>
+  <div class="vf-container flex flex-wrap items-center gap-x-6 gap-y-2 py-3">
+    <a
+      href="/"
+      class="vf-eyebrow text-ink-soft hover:text-copper transition-colors"
+      aria-label="VerdantForged home"
+    >
+      ← verdantforged
+    </a>
+
+    <nav class="flex flex-wrap items-center gap-x-5 gap-y-1" aria-label="Sections">
+      {links.map((link) => (
+        <a
+          href={link.href}
+          class={`text-caption font-mono uppercase tracking-widest transition-colors ${
+            active === link.key
+              ? 'text-copper-deep border-b border-copper-deep pb-0.5'
+              : 'text-ink-soft hover:text-copper'
+          }`}
+          aria-current={active === link.key ? 'page' : undefined}
+        >
+          {link.label}
+        </a>
+      ))}
+    </nav>
+
+    {title && (
+      <span class="ml-auto vf-eyebrow text-ink-soft hidden md:inline-block">
+        {title}
+      </span>
+    )}
+  </div>
+</header>

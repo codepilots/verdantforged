@@ -1,0 +1,71 @@
+---
+/**
+ * /sandboxing/ — Deep dive on Pillar 03: Sandboxing.
+ *
+ * Audience: a reader who has used Docker, knows "containers are isolated,"
+ * but isn't sure what isolation means inside a TEE or what the limits are.
+ * This page explains the wasmtime-style fuel-limited execution, the default-
+ * DENY network policy, ephemeral storage, and the resource caps.
+ */
+import PillarLayout from '~/layouts/PillarLayout.astro';
+---
+
+<PillarLayout
+  pillarNumber="03"
+  pillarName="Sandboxing"
+  title="Sandboxing — What runs inside the enclave, and what it can do"
+  description="A deep dive on the execution environment inside the VerdantForged broker: fuel-limited WASM execution, default-DENY network policy, ephemeral storage, and the resource caps that bound every job."
+  problem={{
+    heading: 'A container is not a sandbox.',
+    body: 'Containers share a kernel with the host. If the kernel is compromised, every container is compromised. Even with a perfectly secure kernel, a container can read files it should not, make network calls it should not, run for as long as it likes, and consume all the memory on the host. The blast radius of a bug or a malicious payload is the entire host.',
+    analogy: 'A container is a desk in an open-plan office. You can ask people to keep their voices down and not look at your papers, but the office is one room. A broker sandbox is a locked room with a one-way mirror, a timer, a network cable that goes nowhere, and a shredder that runs every time you leave.',
+    withoutBroker: 'A malicious or buggy skill can read the host filesystem, make outbound network calls to anywhere, consume all RAM and CPU, and run forever. Even if the skill is well-behaved, a kernel-level bug breaks the isolation for every skill at once.',
+  }}
+  howItWorks={{
+    heading: 'The broker\'s sandbox, in three layers.',
+    steps: [
+      {
+        n: '01',
+        title: 'The skill runs inside the enclave, not the host OS.',
+        body: 'When the worker boots, the only thing that runs is the minimal skill runtime, inside the SEV-SNP enclave. The skill never has access to the host kernel, the host filesystem, or any other process. The host OS — even if compromised — cannot read the skill\'s memory or tamper with its execution.',
+      },
+      {
+        n: '02',
+        title: 'Network egress is default-DENY. The only allowed destination is the broker.',
+        body: 'The enclave boots with an OpenShell-style policy that drops all outbound traffic by default. The only allowed destination is the broker\'s API endpoint, which the skill needs to call the LLM proxy. A skill cannot phone home, cannot call an attacker\'s server, cannot exfiltrate the data you sent it.',
+      },
+      {
+        n: '03',
+        title: 'Resource caps are enforced by the runtime, measured into the attestation.',
+        body: 'Every job has hard limits: max 100 million fuel (instruction count), max 120 seconds wall-clock, max payload 10 MB, max output 1 MiB, max memory declared by the manifest. The runtime kills the skill if it tries to exceed any of these. The actual values used are part of the signed receipt, so the requester can verify the skill did not exceed what was agreed.',
+      },
+    ],
+  }}
+  whatStopsWhat={[
+    { attack: 'Skill runs forever (denial of service)',      fix: 'Fuel limit (≤ 100M instructions) and wall-clock timeout (≤ 120s), both enforced by the runtime' },
+    { attack: 'Skill exfiltrates data to an attacker',       fix: 'Default-DENY network policy; the only allowed egress is the broker API' },
+    { attack: 'Skill reads the host filesystem',             fix: 'No host imports exposed to the skill; the enclave is the only filesystem the skill can see' },
+    { attack: 'Skill overflows the output buffer',           fix: '1 MiB output cap, checked before the enclave writes the result' },
+    { attack: 'Skill persists state between jobs',           fix: 'Ephemeral storage; the enclave is freshly booted per execution, with no persistent mount' },
+    { attack: 'Skill calls host syscalls',                   fix: 'wasmtime-style isolation; the only available syscalls are the ones the broker explicitly exposes' },
+    { attack: 'Skill consumes all host memory',              fix: 'Memory cap is declared in the manifest and enforced by the runtime' },
+    { attack: 'Two skills see each other\'s data',           fix: 'Enclave is per-execution; no shared memory between jobs' },
+  ]}
+  lookAtTheCode={[
+    {
+      label: 'Resource limit enforcement',
+      detail: 'The ExecutionRequest validator enforces all eight constraints (fuel range, wall-clock range, payload size, escrow non-empty) before the enclave boots. Rejecting early is cheap; rejecting after the enclave is up wastes a sandbox.',
+      href: 'https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md',
+    },
+    {
+      label: 'The fuel meter',
+      detail: 'wasmtime counts every instruction the WASM module executes. The fuel_used field in the signed result envelope is the value at completion — the requester can verify the skill did not exceed the manifest\'s max_fuel.',
+    },
+    {
+      label: 'Sandbox limits in the manifest',
+      detail: 'Every skill declares its max_fuel, max_duration_ms, and max_memory_mb in the registration request. The broker stores these and pins them at execution time. /v1/skills lets you list and inspect.',
+      href: '/docs#register-skill',
+    },
+  ]}
+  next={{ number: '04', name: 'Payment', href: '/payment/' }}
+/>

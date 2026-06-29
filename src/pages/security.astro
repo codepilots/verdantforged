@@ -1,0 +1,70 @@
+---
+/**
+ * /security/ — Deep dive on Pillar 02: Security (cryptography).
+ *
+ * Audience: a reader who knows TLS exists, may have heard of "end-to-end
+ * encryption," but isn't sure what the broker does differently. This page
+ * explains X25519 + ChaCha20-Poly1305, ephemeral keys, forward secrecy, and
+ * the threat model the broker actually defends against.
+ */
+import PillarLayout from '~/layouts/PillarLayout.astro';
+---
+
+<PillarLayout
+  pillarNumber="02"
+  pillarName="Security"
+  title="Security — How the broker keeps your data private, end to end"
+  description="A deep dive on the cryptography inside the VerdantForged broker: X25519 key exchange, ChaCha20-Poly1305 authenticated encryption, ephemeral per-job keys, and the threat model it actually defends against."
+  problem={{
+    heading: 'In-transit encryption is not enough.',
+    body: 'TLS protects the data while it is in flight between your machine and the broker. It does not protect the data once the broker receives it. If the broker is a normal server, the operator (and anyone with root on the broker) can read every payload, every result, every secret. The only way to defend against a malicious or compromised server is to never let the server see the plaintext at all.',
+    analogy: 'TLS is a sealed envelope through the mail. Attestation tells you the recipient is the right person. Security is locking the letter inside a safe and only giving the combination to the recipient — the postal service can still deliver it, but they can\'t read it.',
+    withoutBroker: 'You are trusting the broker operator to keep your data private. They might be honest, but they have access, and a single insider or a single root-level compromise is enough to leak everything. There is no protocol-level defense.',
+  }}
+  howItWorks={{
+    heading: 'The broker\'s crypto, in three steps.',
+    steps: [
+      {
+        n: '01',
+        title: 'You generate a fresh X25519 keypair per job.',
+        body: 'When you submit a job to the broker, you generate a new X25519 (elliptic-curve Diffie-Hellman) keypair. The public half is sent to the broker as result_pubkey. The private half never leaves your machine. The broker has no way to derive it.',
+      },
+      {
+        n: '02',
+        title: 'The worker generates its own ephemeral X25519 keypair and derives a shared secret.',
+        body: 'Inside the enclave, the worker generates a fresh X25519 keypair for this job. It combines your public key with its own private key to derive a 32-byte shared secret. You combine the worker\'s public key (sent in the encrypted blob) with your private key to derive the same secret. No one who only sees the public keys can derive the secret — that is the entire point of Diffie-Hellman.',
+      },
+      {
+        n: '03',
+        title: 'The worker encrypts the result with ChaCha20-Poly1305, using the shared secret.',
+        body: 'The result is sealed with ChaCha20-Poly1305, an authenticated encryption algorithm. The 32-byte shared secret is the key, a 12-byte random nonce is generated for this message, and the ciphertext includes a 16-byte authentication tag. If anyone tampers with the ciphertext, the tag fails and the decryption errors out. Only you, with the private half of your keypair, can read the result.',
+      },
+    ],
+  }}
+  whatStopsWhat={[
+    { attack: 'Broker reads the encrypted data',            fix: 'The data is encrypted to a key only the enclave can derive; the broker never sees your private key' },
+    { attack: 'Broker reads the result',                    fix: 'Result is encrypted to the per-job X25519 public key you generated; only your private key decrypts it' },
+    { attack: 'Past traffic is decrypted if a long-term key leaks', fix: 'Forward secrecy: every job gets a fresh ephemeral keypair, so a leak now does not decrypt past jobs' },
+    { attack: 'Someone tampers with the encrypted result',  fix: 'ChaCha20-Poly1305 authentication tag fails on any byte of tampering; decryption raises' },
+    { attack: 'Replay of a previous result',                fix: 'The result envelope is bound to the job_id; replays are detectable by the broker signature' },
+    { attack: 'Man-in-the-middle swaps the worker\'s public key', fix: 'The worker\'s ephemeral pubkey is included in the signed envelope; the broker signs the whole thing' },
+  ]}
+  lookAtTheCode={[
+    {
+      label: 'Quickstart script (working code)',
+      detail: 'The /quickstart page includes a working Python script that generates the keypair, submits a job, polls for the result, and decrypts it. The script is exercised against the live broker.',
+      href: '/quickstart',
+    },
+    {
+      label: 'What ciphertext looks like on the wire',
+      detail: 'result_encrypted is base64(eph_pubkey_32B || nonce_12B || ciphertext_with_tag). Split it in three parts, derive the shared secret, decrypt with ChaCha20-Poly1305 and the context tag b"verdantforged-result".',
+      href: '/docs#encryption-heading',
+    },
+    {
+      label: 'Three independent signatures per result',
+      detail: 'Each completed result carries worker_signature (Ed25519 over result_hash | skill_hash | input_hash), broker_signature (Ed25519 over the same), and the encrypted blob itself. See /docs for the verification order.',
+      href: '/docs',
+    },
+  ]}
+  next={{ number: '03', name: 'Sandboxing', href: '/sandboxing/' }}
+/>

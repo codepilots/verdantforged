@@ -1,0 +1,228 @@
+---
+/**
+ * PillarLayout — shared shell for the four pillar deep-dive pages.
+ *
+ * Each pillar page supplies:
+ *   - pillarNumber: "01" | "02" | "03" | "04"
+ *   - pillarName: "Attestation" | "Security" | "Sandboxing" | "Payment"
+ *   - title: <title> tag override
+ *   - description: meta description
+ *   - problem: the "before the broker" problem, written for a reader
+ *             who may not know what this pillar is
+ *   - howItWorks: a 2-4 step walkthrough of the broker's implementation,
+ *                with concrete crypto/runtime/stripe primitives
+ *   - whatStopsWhat: Array<{ attack, fix }> for the attack/defense table
+ *   - lookAtTheCode: Array<{ label, detail, href? }> for code references
+ *   - next: { number, name, href } — the next pillar in the tour
+ *
+ * The layout is intentionally simple — no `slot`s. The page imports the
+ * layout and passes the content as props. The styling comes from the
+ * global `vf-*` classes.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+interface AttackRow { attack: string; fix: string; }
+interface CodeRef   { label: string; detail: string; href?: string; }
+interface NextPillar { number: string; name: string; href: string; }
+
+interface Props {
+  pillarNumber: string;
+  pillarName: string;
+  title: string;
+  description: string;
+  problem: {
+    heading: string;
+    body: string;
+    analogy?: string;     // optional 1-2 sentence analogy for non-experts
+    withoutBroker?: string; // what the world looks like without this pillar
+  };
+  howItWorks: {
+    heading: string;
+    steps: Array<{ n: string; title: string; body: string; }>;
+  };
+  whatStopsWhat: AttackRow[];
+  lookAtTheCode: CodeRef[];
+  next: NextPillar;
+}
+
+const { pillarNumber, pillarName, title, description, problem, howItWorks, whatStopsWhat, lookAtTheCode, next } = Astro.props;
+---
+
+<BaseLayout title={title} description={description}>
+  <SiteNav active="pillars" title={`Pillar ${pillarNumber} · ${pillarName}`} />
+
+  <main>
+    <!-- ── HERO ─────────────────────────────────────────────────── -->
+    <section class="vf-container pt-30 pb-16" aria-labelledby="pillar-heading">
+      <p class="vf-eyebrow vf-reveal" data-reveal-delay="0">
+        Pillar {pillarNumber} of 4
+      </p>
+      <h1
+        id="pillar-heading"
+        class="vf-heading-section mt-6 max-w-4xl vf-reveal"
+        data-reveal-delay="180"
+        style="transition-delay: 180ms;"
+      >
+        {pillarName}.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl vf-reveal" data-reveal-delay="360">
+        A deep dive on what the broker's <span class="text-verdigris-deep">{pillarName.toLowerCase()}</span> layer
+        actually delivers, how it works, and what attacks it stops. Written for readers
+        who may not know the underlying primitive.
+      </p>
+      <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
+        <a href="/#pillars" class="vf-link">← Back to the four pillars</a>
+        <span class="mx-3 text-moss/60">·</span>
+        <a href="/agents/" class="vf-link">For agents →</a>
+      </p>
+    </section>
+
+    <!-- ── THE PROBLEM (beginner-friendly) ──────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="problem-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">The problem</p>
+      <h2 id="problem-heading" class="vf-heading-section mt-6 max-w-4xl">
+        {problem.heading}
+      </h2>
+      <div class="mt-10 max-w-prose-vf space-y-6 text-body text-ink-soft vf-text-pretty">
+        <p>{problem.body}</p>
+        {problem.analogy && (
+          <div class="vf-card border-verdigris/40">
+            <p class="vf-eyebrow text-verdigris-deep">In plain terms</p>
+            <p class="mt-3 text-ink">{problem.analogy}</p>
+          </div>
+        )}
+        {problem.withoutBroker && (
+          <p>
+            <span class="text-copper-deep font-medium">Without the broker — </span>
+            {problem.withoutBroker}
+          </p>
+        )}
+      </div>
+    </section>
+
+    <!-- ── HOW THE BROKER DOES IT ───────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="how-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">How the broker does it</p>
+      <h2 id="how-heading" class="vf-heading-section mt-6 max-w-4xl">
+        {howItWorks.heading}
+      </h2>
+      <ol class="mt-12 max-w-prose-vf space-y-10">
+        {howItWorks.steps.map((step) => (
+          <li>
+            <div class="flex items-baseline gap-4">
+              <span class="text-copper-deep font-display font-semibold text-display-sm shrink-0">{step.n}</span>
+              <h3 class="text-display-sm font-display font-semibold text-ink vf-text-balance">{step.title}</h3>
+            </div>
+            <p class="mt-4 ml-12 text-body text-ink-soft vf-text-pretty">{step.body}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <!-- ── WHAT STOPS WHAT ──────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="stops-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">What stops what</p>
+      <h2 id="stops-heading" class="vf-heading-section mt-6 max-w-4xl">
+        The attack/defense matrix.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Each row is a real attack the broker is designed to resist, and the
+        specific mechanism that stops it. None of these are policy promises.
+      </p>
+      <div class="mt-12 max-w-5xl">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-moss">
+              <th class="py-4 pr-6 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">Attack</th>
+              <th class="py-4 text-caption font-mono uppercase tracking-widest text-ink-soft font-medium">What stops it</th>
+            </tr>
+          </thead>
+          <tbody>
+            {whatStopsWhat.map((row, i) => (
+              <tr class={`border-b border-moss/30 align-top ${i % 2 === 1 ? 'bg-moss/5' : ''}`}>
+                <td class="py-5 pr-6 text-body text-ink vf-text-pretty">{row.attack}</td>
+                <td class="py-5 text-body text-ink-soft vf-text-pretty">
+                  <span class="text-verdigris-deep mr-2" aria-hidden="true">✓</span>
+                  {row.fix}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── LOOK AT THE CODE ─────────────────────────────────────── -->
+    <section class="vf-container section-sm" aria-labelledby="code-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Look at the code</p>
+      <h2 id="code-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Where this lives in the repo.
+      </h2>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        The broker is open source. Every claim on this page corresponds to
+        a specific test or function you can read and run.
+      </p>
+      <div class="mt-10 max-w-5xl grid grid-cols-1 gap-4">
+        {lookAtTheCode.map((ref) => (
+          <div class="vf-card">
+            <p class="vf-eyebrow text-verdigris-deep">{ref.label}</p>
+            <p class="mt-3 text-body text-ink vf-text-pretty">
+              {ref.href ? (
+                <a href={ref.href} class="vf-link">{ref.detail}</a>
+              ) : (
+                ref.detail
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- ── NEXT PILLAR ──────────────────────────────────────────── -->
+    <section class="vf-container section-sm pb-30" aria-labelledby="next-heading">
+      <div class="vf-divider mb-16"></div>
+      <p class="vf-eyebrow">Next pillar</p>
+      <a
+        href={next.href}
+        class="mt-6 block max-w-3xl vf-card hover:border-copper group"
+        aria-label={`Pillar ${next.number} ${next.name}`}
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="vf-eyebrow text-ink-soft">Pillar {next.number}</p>
+            <p class="mt-3 text-display-sm font-display font-semibold text-ink group-hover:text-copper-deep transition-colors">
+              {next.name}
+            </p>
+          </div>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" class="text-copper-deep shrink-0" aria-hidden="true">
+            <path d="M5 16h22M18 7l9 9-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </a>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>
+
+<script>
+  // Scroll-reveal for sections under the sticky nav
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -100px 0px', threshold: 0.05 });
+
+  setTimeout(() => {
+    document.querySelectorAll('.vf-reveal').forEach((el) => observer.observe(el));
+  }, 50);
+</script>
