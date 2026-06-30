@@ -100,7 +100,7 @@ const pillars: Pillar[] = [
       { attack: 'Operator fabricates a successful run',  fix: 'Result envelope carries a broker Ed25519 signature independent of the worker\'s; verifiable without the broker' },
       { attack: 'Operator overcharges on actual cost',   fix: 'Cost is a function of lease-seconds + tokens (BROKER_MIN_CAPTURE_CENTS pads only below per-currency floors); Stripe receipt is published' },
     ],
-    evidence: 'Stripe PaymentIntent verify-then-capture lifecycle — see /payment-flow for the 4 paths',
+    evidence: 'Stripe ACS Shared Payment Token + PaymentIntent verify-then-capture lifecycle — see /payment-flow for the 4 paths and /payment for the engineering view',
   },
 ];
 ---

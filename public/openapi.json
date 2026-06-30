@@ -96,7 +96,7 @@
           "Jobs"
         ],
         "summary": "Submit a job",
-        "description": "Submits a job to the broker queue. On success returns 202 Accepted with `job_id`, `state: queued`, and a per-job `llm_token` (10-minute TTL) that the worker uses to call the broker's LLM proxy. **Idempotency:** clients SHOULD send a unique `client_req_id`. Re-submitting the same `client_req_id` returns the existing job (`idempotent_replay: true`) without creating a duplicate. **Auth:** none at the API layer; the broker validates the `stripe_pi_id` against Stripe (or accepts demo PIs when `STRIPE_SECRET_KEY` is unset).",
+        "description": "Submits a job to the broker queue. On success returns 202 Accepted with `job_id`, `state: queued`, and a per-job `job_access_token` used to authenticate status polling and artifact downloads. The worker receives a separate internal `llm_token` (10-minute TTL) via the EFS envelope. **Idempotency:** clients SHOULD send a unique `client_req_id`. Re-submitting the same `client_req_id` returns the existing job (`idempotent_replay: true`) without creating a duplicate. **Payment:** present a Stripe ACS Shared Payment Token via `shared_payment_token` (or one of `spt` / `payment_token` / `agent_payment_token` aliases), or as `Authorization: Bearer *** or as a `Payment: spt_\u2026` / `X-Payment: spt_\u2026` header. Legacy `stripe_pi_id` is also accepted. Submitting without a payment token returns 402 Payment Required with a `WWW-Authenticate: Stripe ACS \u2026` challenge. **Auth:** none at the API layer beyond the payment credential.",
         "operationId": "submitJob",
         "requestBody": {
           "required": true,
@@ -149,6 +149,16 @@
           },
           "429": {
             "description": "Per-IP rate limit or daily token cap exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required \u2014 no Stripe ACS Shared Payment Token was presented",
             "content": {
               "application/json": {
                 "schema": {
@@ -602,6 +612,48 @@
           }
         }
       }
+    },
+    "/v1/demo/shared-payment-token": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Mint a stub Shared Payment Token (demo mode only)",
+        "description": "Mint a stub Stripe ACS Shared Payment Token (spt_demo_\u2026) for local demos and regions where Stripe Link is unavailable. Only enabled when STRIPE_SECRET_KEY is unset on the server, or when BROKER_PAYMENT_STUB_MODE=1. Returns 404 when the broker is in live mode. The token is accepted by POST /v1/jobs exactly like a real spt_\u2026 \u2014 the broker short-circuits the Stripe API call and synthesizes a pi_demo_\u2026 PaymentIntent server-side.",
+        "operationId": "mintDemoSharedPaymentToken",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoSharedPaymentTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stub token minted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoSharedPaymentTokenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Stub mode is disabled (broker is in live mode)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -779,8 +831,7 @@
           "encrypted_skill",
           "encrypted_data",
           "requester_sig",
-          "result_pubkey",
-          "stripe_pi_id"
+          "result_pubkey"
         ],
         "properties": {
           "client_req_id": {
@@ -812,7 +863,8 @@
           "stripe_pi_id": {
             "type": "string",
             "pattern": "^pi_",
-            "description": "Stripe PaymentIntent ID. Validated against Stripe (status must be `requires_capture` or `succeeded`). In demo mode (no STRIPE_SECRET_KEY), any `pi_*` string is accepted."
+            "description": "Stripe PaymentIntent ID (legacy). Validated against Stripe (status must be `requires_capture` or `succeeded`). In demo mode (no STRIPE_SECRET_KEY), any `pi_*` string is accepted. Prefer `shared_payment_token` for new integrations.",
+            "required": false
           },
           "timestamp": {
             "type": "string",
@@ -822,6 +874,82 @@
             "type": "string",
             "format": "uri",
             "description": "Optional. When set, the broker POSTs the job result to this URL on finalize. Must be a public HTTPS URL (SSRF blocklist rejects private/loopback/link-local)."
+          },
+          "shared_payment_token": {
+            "type": "string",
+            "pattern": "^spt_",
+            "description": "Stripe ACS Shared Payment Token (preferred). Minted out-of-band via the Stripe Link CLI (live) or POST /v1/demo/shared-payment-token (demo). The broker charges the token to derive a server-side PaymentIntent. In demo mode accepts spt_demo_\u2026 when STRIPE_SECRET_KEY is unset or BROKER_PAYMENT_STUB_MODE=1."
+          },
+          "spt": {
+            "type": "string",
+            "description": "Alias for shared_payment_token \u2014 same semantics."
+          },
+          "payment_token": {
+            "type": "string",
+            "description": "Alias for shared_payment_token \u2014 same semantics."
+          },
+          "agent_payment_token": {
+            "type": "string",
+            "description": "Alias for shared_payment_token \u2014 same semantics."
+          }
+        }
+      },
+      "DemoSharedPaymentTokenRequest": {
+        "type": "object",
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "description": "Optional; defaults to estimated_job_cost_cents()"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Optional; defaults to STRIPE_CURRENCY (usd)"
+          },
+          "networkId": {
+            "type": "string",
+            "description": "Optional; defaults to STRIPE_NETWORK_ID or 'demo_network'"
+          }
+        }
+      },
+      "DemoSharedPaymentTokenResponse": {
+        "type": "object",
+        "properties": {
+          "shared_payment_token": {
+            "type": "string"
+          },
+          "spt": {
+            "type": "string"
+          },
+          "credential_type": {
+            "type": "string",
+            "enum": [
+              "shared_payment_token"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "demo"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "challenge": {
+            "type": "string",
+            "description": "RFC 9110-style challenge string for the WWW-Authenticate header"
           }
         }
       }

@@ -1,6 +1,6 @@
 ---
 name: verdantforged
-description: A TEE broker for agent workloads. Verifies AMD SEV-SNP attestation before execution, encrypts payloads to the enclave, and uses Stripe PaymentIntents with a verify-then-capture lifecycle so you only pay for the work that actually ran. The four engineering pillars: Attestation, Security, Sandboxing, Payment.
+description: A TEE broker for agent workloads. Verifies AMD SEV-SNP attestation before execution, encrypts payloads to the enclave, and uses Stripe ACS Shared Payment Tokens + PaymentIntents with a verify-then-capture lifecycle so you only pay for the work that actually ran. The four engineering pillars: Attestation, Security, Sandboxing, Payment.
 triggers:
   - "verdantforged"
   - "tee broker"
@@ -11,8 +11,10 @@ triggers:
   - "chacha poly1305"
   - "x25519"
   - "stripe paymentintent"
+  - "stripe acs"
+  - "shared payment token"
 agent_type: tee_broker
-version: 0.3.0
+version: 0.4.0
 test_broker: https://verdant.codepilots.co.uk
 source_dir: ~/hermes/competition/tee-broker-deploy/
 pattern_dir: ~/hermes/competition/tee-broker-pattern/
@@ -22,7 +24,7 @@ updated: 2026-06-30
 
 # VerdantForged
 
-A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a max lifetime, a Stripe PaymentIntent ID — and the broker deploys the work inside a freshly-booted AMD SEV-SNP worker. Stripe captures the actual cost on success, refunds the hold on failure, and triggers a topup window when the actual exceeds the held.
+A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a max lifetime, a Stripe ACS Shared Payment Token (spt_…) — and the broker deploys the work inside a freshly-booted AMD SEV-SNP worker. Stripe captures the actual cost on success, refunds the hold on failure, and triggers a topup window when the actual exceeds the held.
 
 > If you are a Hermes agent reading this file, the human has asked you to install the VerdantForged skill. Walk through the steps below. Most are read-only. The final `curl` invokes prove the protocol end-to-end against the live test broker.
 
@@ -57,7 +59,7 @@ Read in this order:
 | **Attestation** | Every job runs inside a freshly-measured SEV-SNP worker (m6a.xlarge EC2). The chip signs the SHA-384 measurement; you verify the VCEK/VLEK cert chain before sending plaintext. |
 | **Security** | Per-job X25519 ephemeral keypair, ChaCha20-Poly1305 AEAD over `x25519-hkdf-sha256-chacha20poly1305-v1`. Worker signs result with Ed25519; broker independently re-signs. |
 | **Sandboxing** | wasmtime fuel meter (manifest-declared ≤ 10⁹, typical ≤ 10⁸) + epoch-interruption wall-clock cap (default 30s). OpenShell policy default-DENYs egress except to broker API and broker LLM proxy. |
-| **Payment** | Stripe PaymentIntent verify-then-capture. The broker holds your card in `requires_capture`; captures `actual_cents` on completed, refunds the PI on failed/timeout, posts a topup PI request on shortfall. |
+| **Payment** | Stripe ACS Shared Payment Token (spt_…) → broker charges → PaymentIntent verify-then-capture. Funds sit in `requires_capture` on the requester's card until the attested worker has run and signed its result envelope. On completed, the broker captures `actual_cents` (padded to the per-currency minimum: MIN_CAPTURE_CENTS=50 USD/EUR, BROKER_MIN_CAPTURE_CENTS=30 GBP). On failed/timeout, the PI is fully refunded. On shortfall, the job pauses into `awaiting_topup` and the broker posts a topup request to the client. Legacy `stripe_pi_id: pi_demo_…` placeholders are still accepted. Demo SPTs (`spt_demo_…`) come from `POST /v1/demo/shared-payment-token`. |
 
 Deep dives on each pillar are at `/attestation`, `/security`, `/sandboxing`, `/payment`.
 
@@ -75,21 +77,32 @@ curl -sS https://verdant.codepilots.co.uk/v1/discover
 
 The demo path passes `"0x"` for `requester_sig` and `result_pubkey`. The broker accepts the request, the worker returns the plaintext `output` field instead of an encrypted blob. Useful for trying the API; never use in production.
 
+Two equivalent payment tokens work in demo mode:
+- **Preferred**: mint a stub `spt_demo_…` token from `POST /v1/demo/shared-payment-token` and pass it as `shared_payment_token` (or as `Authorization: Bearer *** or `Payment: spt_demo_…`).
+- **Legacy**: pass `stripe_pi_id: "pi_demo_0001"` directly. Still accepted for backward compatibility.
+
 ```bash
-# Submit
+# 1. Mint a stub Stripe ACS Shared Payment Token (demo path)
+SPT=$(curl -sS -X POST https://verdant.codepilots.co.uk/v1/demo/shared-payment-token \
+  -H 'Content-Type: application/json' -d '{}' | jq -r .shared_payment_token)
+
+# 2. Submit
 curl -sS -X POST https://verdant.codepilots.co.uk/v1/jobs \
   -H 'Content-Type: application/json' \
-  -d '{
-    "client_req_id":   "agent-first-job-001",
-    "encrypted_skill": "summarize",
-    "encrypted_data":  "The VerdantForged broker is a t3.small control plane that brokers work into an attested TEE worker.",
-    "requester_sig":   "0x",
-    "result_pubkey":   "0x",
-    "stripe_pi_id":    "pi_demo_0001"
-  }'
+  -d "{
+    \"client_req_id\":   \"agent-first-job-001\",
+    \"encrypted_skill\": \"summarize\",
+    \"encrypted_data\":  \"The VerdantForged broker is a t3.small control plane that brokers work into an attested TEE worker.\",
+    \"requester_sig\":   \"0x\",
+    \"result_pubkey\":   \"0x\",
+    \"shared_payment_token\": \"$SPT\"
+  }"
 # Returns: {"job_id": "job_...", "state": "queued", "status_url": "/v1/jobs/job_...", "job_access_token": "jobtok_...", "idempotent_replay": false}
 
-# Poll until state is no longer "queued" or "running"
+# Legacy equivalent (still supported):
+#   ... -d '{..., "stripe_pi_id": "pi_demo_0001"}'
+
+# 3. Poll until state is no longer "queued" or "running"
 JOB_ID="job_..."  # from submit response
 while true; do
   RESP=$(curl -sS https://verdant.codepilots.co.uk/v1/jobs/$JOB_ID)

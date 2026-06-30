@@ -16,7 +16,7 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
   pillarNumber="04"
   pillarName="Payment"
   title="Payment — How Stripe and the broker work together"
-  description="A deep dive on the VerdantForged payment lifecycle: verify before execution, capture the actual cost, refund failures, handle insufficient funds with a topup window. Stripe PaymentIntent + TEE attestation."
+  description="A deep dive on the VerdantForged payment lifecycle: Stripe ACS Shared Payment Token for agents, verify before execution, capture the actual cost, refund failures, handle insufficient funds with a topup window. Stripe ACS + PaymentIntent + TEE attestation."
   problem={{
     heading: 'You cannot pay for work that has not happened.',
     body: 'Most cloud billing trusts the cloud to tell you what you used. The cloud bills you, you pay, and if the bill is wrong, you dispute it after the fact. That works for honest providers. For an untrusted broker, it does not: the broker could bill you for jobs that never ran, jobs that failed, or jobs that cost ten times what they should.',
@@ -28,23 +28,30 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
     steps: [
       {
         n: '01',
-        title: 'Verify. The broker holds your card but does not charge it.',
-        body: 'When you submit a job, you pass a Stripe PaymentIntent ID. The broker calls Stripe to confirm the PI is authable, with status requires_capture. The funds are reserved on your card but not yet captured. The broker has not earned a cent.',
+        title: 'Tokenise. You present a Stripe ACS Shared Payment Token.',
+        body: 'Agents and humans do not pass raw card numbers. They pass a Stripe ACS Shared Payment Token (spt_…), minted out-of-band — either through the Stripe Link CLI in test mode, or by a Stripe Connect platform that already holds the instrument. The broker accepts the token via the JSON body (shared_payment_token / spt / payment_token / agent_payment_token), as an Authorization Bearer, or as a Payment / X-Payment header. The token is the credential; no raw PI is exchanged. Demo mode accepts spt_demo_… from POST /v1/demo/shared-payment-token so you can exercise the protocol without a Stripe account.',
       },
       {
         n: '02',
+        title: 'Verify. The broker charges the SPT but does not yet capture the work-cost.',
+        body: 'The broker calls Stripe\'s ACS preview API to charge the token for the estimated cost (lease + projected tokens). The PaymentIntent enters requires_capture — funds reserved on the requester\'s card, no money moved yet. The broker publishes the job record and waits for the attested worker. If no SPT is presented, the broker returns 402 Payment Required with a WWW-Authenticate challenge describing the Stripe ACS network and amount; the client retries with the token.',
+      },
+      {
+        n: '03',
         title: 'Run. The enclave executes the work, the cost accrues.',
         body: 'The worker boots inside the attested VM, runs the skill, accrues lease time and LLM tokens. The worker signs the result envelope with its Ed25519 key (worker_signature), then the broker re-signs it independently in _finalize_job (broker_signature) — both signatures cover (result_hash | skill_hash | input_hash). The signed envelope is what gets persisted on the jobs row and what the webhook delivers.',
       },
       {
-        n: '03',
+        n: '04',
         title: 'Capture or refund. Stripe moves only the actual amount.',
-        body: 'The broker calls Stripe to capture the actual cost (lease + LLM tokens, no markup). Any unused portion of your hold is auto-refunded. On a failed execution, the broker calls Stripe to refund the full hold. On an underfunded job (your PI was too small), the broker pauses capture, requests a topup, and gives you a 10-minute window to authorise the shortfall before refunding and abandoning.',
+        body: 'The broker calls Stripe to capture the actual cost (lease + LLM tokens, no markup), padded up to the per-currency minimum (MIN_CAPTURE_CENTS=50 for USD/EUR, BROKER_MIN_CAPTURE_CENTS=30 for GBP) to satisfy Stripe\'s floor and avoid amount_too_small rejections. Any unused portion of your hold is auto-refunded. On a failed execution, the broker calls Stripe to refund the full hold. On an underfunded job (your token was too small), the broker pauses capture, requests a topup, and gives you a 10-minute window to authorise the shortfall before refunding and abandoning.',
       },
     ],
   }}
   whatStopsWhat={[
-    { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost; the result envelope is signed by the broker and verifiable by you (broker_signature Ed25519 over result_hash|skill_hash|input_hash)' },
+    { attack: 'Agent submits a job with no payment instrument', fix: 'Broker returns 402 Payment Required with a Stripe ACS WWW-Authenticate challenge; the agent mints an spt_… and retries' },
+    { attack: 'Agent reuses a spent or revoked token',         fix: 'charge_shared_payment_token() returns a structured failure (declined / token_not_found / amount_too_small); broker surfaces it as a 402 with a fresh challenge' },
+    { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost (padded to the per-currency minimum); the result envelope is signed by the broker and verifiable by you (broker_signature Ed25519 over result_hash|skill_hash|input_hash)' },
     { attack: 'Broker charges for a failed job',              fix: 'Failure path refunds the full hold — no partial captures, no fees retained' },
     { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until _finalize_job runs; capture requires a verified result envelope with broker_signature' },
     { attack: 'You run out of funds mid-job and get overcharged', fix: 'Shortfall pauses capture and asks for a topup with a 10-minute window; no auto-charge beyond what you authorised' },
@@ -57,6 +64,11 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
       label: 'The four lifecycle paths',
       detail: 'Happy / failure / insufficient funds / abandoned topup — full code snippets, timelines, and the 7-event audit trail in /payment-flow.',
       href: `${base}payment-flow/`,
+    },
+    {
+      label: 'The ACS challenge flow',
+      detail: 'When an agent submits without a token, the broker returns 402 with a WWW-Authenticate Stripe ACS challenge. The demo route POST /v1/demo/shared-payment-token mints a stub spt_demo_… so the protocol is exercisable without a Stripe account. See /docs#demo-shared-payment-token.',
+      href: `${base}docs#demo-shared-payment-token`,
     },
     {
       label: 'Pricing model',

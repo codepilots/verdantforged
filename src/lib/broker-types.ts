@@ -6,7 +6,7 @@
  * The page UI speaks only to this contract — never to either impl
  * directly.
  *
- * Schema reference: tee-broker-docs/site/BROKER_RPC.md
+ * Schema reference: tee-broker-docs-archive-2026-06-29/site/BROKER_RPC.md
  */
 
 import type { SkillCatalogEntry } from './skill-catalog';

@@ -43,6 +43,19 @@ const TOPUP_TTL_MINUTES = 10;
         the full hold; on an underfunded run we give you a {TOPUP_TTL_MINUTES}-minute
         topup window before we close out.
       </p>
+      <p class="mt-6 text-body text-ink-soft max-w-2xl vf-reveal" data-reveal-delay="540">
+        Payment arrives as a <strong>Stripe ACS Shared Payment Token</strong>
+        (<code class="font-mono text-copper">spt_…</code>) — either a stub
+        <code class="font-mono text-copper">spt_demo_…</code> from
+        <code class="font-mono text-copper">/v1/demo/shared-payment-token</code>
+        (demo), or a real token minted by the Stripe Link CLI (live). Agents
+        that submit without a token get back a
+        <code class="font-mono text-copper">402 Payment Required</code>
+        with a <code class="font-mono text-copper">WWW-Authenticate: Stripe ACS …</code>
+        challenge describing the network and amount. Legacy
+        <code class="font-mono text-copper">stripe_pi_id</code> placeholders
+        are still accepted for backward compatibility.
+      </p>
     </section>
 
     <!-- ── THE FOUR PATHS ───────────────────────────────────────── -->
@@ -167,7 +180,7 @@ client sees: <span class="str">abandoned · $0.20 refunded · topup_window_expir
     <section class="vf-container section-sm bg-moss/5 rounded-3xl" aria-labelledby="timeline-heading">
       <p class="vf-eyebrow">Timeline</p>
       <h2 id="timeline-heading" class="vf-heading-section mt-6 max-w-4xl">
-        The 7 events that matter.
+        The 8 events that matter.
       </h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
         A happy-path job produces this audit trail. Every line is signed by
@@ -178,30 +191,34 @@ client sees: <span class="str">abandoned · $0.20 refunded · topup_window_expir
       <ol class="mt-10 max-w-3xl space-y-4 text-body-sm font-mono">
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">01</span>
-          <span><span class="text-ink">submit</span> — requester POSTs the job, broker records the PI id</span>
+          <span><span class="text-ink">tokenise</span> — agent presents a Stripe ACS Shared Payment Token (spt_…) via JSON body, Authorization Bearer, or Payment header</span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">02</span>
-          <span><span class="text-ink">verify</span> — Stripe confirms the PI is authable; status <code class="bg-moss/20 px-1 rounded">requires_capture</code></span>
+          <span><span class="text-ink">submit</span> — requester POSTs the job, broker records the spt_… and mints a server-side PaymentIntent</span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">03</span>
-          <span><span class="text-ink">attest</span> — enclave returns SEV-SNP measurement + OpenShell policy hash</span>
+          <span><span class="text-ink">verify</span> — Stripe confirms the PI is authable; status <code class="bg-moss/20 px-1 rounded">requires_capture</code></span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">04</span>
-          <span><span class="text-ink">run</span> — skill executes inside the enclave; tokens accrue per LLM call</span>
+          <span><span class="text-ink">attest</span> — enclave returns SEV-SNP measurement + OpenShell policy hash</span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">05</span>
-          <span><span class="text-ink">finalize</span> — broker computes actual cost (lease + tokens)</span>
+          <span><span class="text-ink">run</span> — skill executes inside the enclave; tokens accrue per LLM call</span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">06</span>
-          <span><span class="text-ink">capture</span> — Stripe captures <code class="bg-moss/20 px-1 rounded">$actual</code>; auto-refunds any unused hold</span>
+          <span><span class="text-ink">finalize</span> — broker computes actual cost (lease + tokens, padded to the per-currency minimum)</span>
         </li>
         <li class="flex gap-4">
           <span class="text-copper-deep tabular-nums shrink-0">07</span>
+          <span><span class="text-ink">capture</span> — Stripe captures <code class="bg-moss/20 px-1 rounded">$actual</code>; auto-refunds any unused hold</span>
+        </li>
+        <li class="flex gap-4">
+          <span class="text-copper-deep tabular-nums shrink-0">08</span>
           <span><span class="text-ink">release</span> — result envelope (encrypted) + receipt + signed trace go to the requester</span>
         </li>
       </ol>

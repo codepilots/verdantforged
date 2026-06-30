@@ -67,7 +67,7 @@ const requestValidation = [
   { check: 'encrypted_data present',          detail: 'Rejects empty payload (replay/sanity)' },
   { check: 'requester_sig present',           detail: 'Ed25519 signature over the canonical envelope; optional pubkey for opt-in verification' },
   { check: 'result_pubkey well-formed',       detail: '32-byte base64 X25519 pubkey; file jobs require it (code: file_encryption_required)' },
-  { check: 'stripe_pi_id format-valid',      detail: 'Pattern pi_<base62> (Stripe PaymentIntent ID format)' },
+  { check: 'shared_payment_token or stripe_pi_id', detail: 'Stripe ACS Shared Payment Token (spt_… / spt_demo_…) is the preferred credential; legacy stripe_pi_id still accepted. Pattern spt_<base62> or pi_<base62>' },
   { check: 'encrypt_input capability check',  detail: 'Registered skills with decrypt_input=true are honored; unknown skills never get the decrypt path' },
   { check: 'wasm_uri optional',              detail: 'If set, broker resolves + verifies skill_hash from the registered skills table before injecting' },
   { check: 'Input files (optional)',         detail: 'Filename allowlist, ≤50 MB per file, ≤10 files, requires valid X25519 result_pubkey' },

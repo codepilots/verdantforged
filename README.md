@@ -93,7 +93,7 @@ tee-broker-site/
 
 ## Do not
 
-- Do not edit anything in `tee-broker-pattern/` or `tee-broker-docs/` from this directory
+- Do not edit anything in `tee-broker-pattern/` or `tee-broker-docs-archive-2026-06-29/` from this directory
 - Do not use stock photography — site uses real screenshots and abstract motion
 - Do not use clichéd AI imagery (neural nets, glowing brains, robot heads)
 - Do not ship without `npm run build` passing cleanly first

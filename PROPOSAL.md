@@ -2,7 +2,7 @@
 
 **Status:** Concept proposal (2026-06-19), awaiting name-conflict resolution
 **Project root:** `~/hermes/competition/tee-broker-site/`
-**Related work (do NOT touch):** `tee-broker-pattern/` (Rust core, 5 crates, 46 tests), `tee-broker-docs/`
+**Related work (do NOT touch):** `tee-broker-pattern/` (Rust core, 5 crates, 46 tests), `tee-broker-docs-archive-2026-06-29/`
 
 ---
 
@@ -92,7 +92,7 @@ The "forged in a rainforest" feel. Off-white background, near-black text, copper
 ```
 ~/hermes/competition/
 ├── tee-broker-pattern/      ← Rust core (DON'T TOUCH)
-├── tee-broker-docs/         ← existing markdown docs (DON'T TOUCH)
+├── tee-broker-docs-archive-2026-06-29/         ← existing markdown docs (DON'T TOUCH)
 ├── tee-broker-site/         ← NEW: marketing site (this proposal)
 │   ├── astro.config.mjs
 │   ├── tailwind.config.ts
@@ -175,5 +175,5 @@ No new task needed; the work is already queued at `~/hermes/webagent/`.
 
 - Not a redesign of the TEE Broker protocol
 - Not a new Rust crate
-- Not a replacement for tee-broker-docs/
+- Not a replacement for tee-broker-docs-archive-2026-06-29/
 - The 5-crate, 46-test Rust core stays untouched

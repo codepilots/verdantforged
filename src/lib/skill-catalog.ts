@@ -2,7 +2,7 @@
  * skill-catalog.ts — the 7 skills the demo marketplace knows about.
  *
  * Each entry has the realistic shape of a Nostr Kind 31989 announcement
- * (see tee-broker-docs/discovery/DISCOVERY.md). The values are synthetic
+ * (see tee-broker-docs-archive-2026-06-29/discovery/DISCOVERY.md). The values are synthetic
  * for the demo, but the structure is what a real provider would publish.
  *
  * The variety (different envs, different cost ranges, different n=)

@@ -21,9 +21,9 @@
 const steps = [
   {
     n: '01',
-    title: 'Submit',
-    sub: 'Stripe PaymentIntent',
-    body: 'Create a Stripe PaymentIntent on your side and POST /v1/jobs with stripe_pi_id plus your encrypted payload. The broker calls Stripe to confirm the PI is in requires_capture — funds reserved on your card, not yet captured. The broker earns nothing yet.',
+    title: 'Tokenise + submit',
+    sub: 'Stripe ACS Shared Payment Token',
+    body: 'Agents present a Stripe ACS Shared Payment Token (spt_…) — either a real one minted by the Stripe Link CLI (live) or a stub spt_demo_… from POST /v1/demo/shared-payment-token. The token is accepted in the JSON body (shared_payment_token / spt / payment_token / agent_payment_token), as Authorization: Bearer spt_…, or as a Payment / X-Payment header. The broker calls Stripe to charge the token for the estimated cost and produces a server-side PaymentIntent in requires_capture. Funds are reserved on the requester\'s card, not yet captured. The broker earns nothing yet. Legacy stripe_pi_id placeholders are still accepted at submit for backward compatibility.',
     diagram: 'submit',
   },
   {

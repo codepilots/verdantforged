@@ -24,10 +24,13 @@ VerdantForged quickstart — submit a job, poll, decrypt the result.
 Requirements:
     pip install cryptography requests
 
-Run:
+Run (demo — no Stripe charge):
     BROKER=https://verdant.codepilots.co.uk \\
-    STRIPE_PI_ID=pi_demo_0001 \\
     python3 quickstart.py
+
+The script mints a stub spt_demo_… from /v1/demo/shared-payment-token
+first, then submits. For live mode, replace the mint() call with a
+Stripe Link CLI invocation that returns a real spt_… token.
 """
 import base64
 import json
@@ -40,7 +43,10 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 BROKER       = os.environ.get("BROKER", "https://verdant.codepilots.co.uk")
-STRIPE_PI_ID = os.environ.get("STRIPE_PI_ID", "pi_demo_0001")
+# Legacy escape hatch: STRIPE_PI_ID=pi_demo_0001 still works for backward
+# compatibility. Preferred path: leave it unset and let the script mint an
+# spt_demo_… token from the broker's demo route.
+STRIPE_PI_ID = os.environ.get("STRIPE_PI_ID", "")
 SKILL        = os.environ.get("SKILL", "summarize")
 INPUT        = os.environ.get(
     "INPUT",
@@ -58,7 +64,20 @@ pub  = priv.public_key().public_bytes(
 )
 result_pubkey = base64.b64encode(pub).decode()
 
-# 2. Submit the job.
+# 2. Resolve a payment token.
+if STRIPE_PI_ID:
+    # Legacy path: pass the raw pi_demo_… placeholder.
+    payment_kw = {"stripe_pi_id": STRIPE_PI_ID}
+else:
+    # Preferred path: mint a stub Stripe ACS Shared Payment Token.
+    spt = requests.post(
+        f"{BROKER}/v1/demo/shared-payment-token",
+        json={},
+        timeout=30,
+    ).json()
+    payment_kw = {"shared_payment_token": spt["shared_payment_token"]}
+
+# 3. Submit the job.
 resp = requests.post(
     f"{BROKER}/v1/jobs",
     json={
@@ -67,7 +86,7 @@ resp = requests.post(
         "encrypted_data":  INPUT,
         "requester_sig":   "0x",        # demo path: no signature
         "result_pubkey":   result_pubkey,
-        "stripe_pi_id":    STRIPE_PI_ID,
+        **payment_kw,
     },
     timeout=30,
 )
@@ -111,27 +130,32 @@ print("\\n--- billing ---")
 print(json.dumps(result.get("billing") or job.get("payment"), indent=2))
 `;
 
-const curlDemo = `# 1. Submit (demo path — "0x" disables encryption + signature)
+const curlDemo = `# 1. Mint a stub Stripe ACS Shared Payment Token (demo only).
+#    In live mode, the spt_… would come from the Stripe Link CLI.
+SPT=$(curl -sS -X POST ${brokerBase}/v1/demo/shared-payment-token \\
+  -H 'Content-Type: application/json' -d '{}' | jq -r .shared_payment_token)
+
+# 2. Submit (demo path — "0x" disables encryption + signature).
 curl -sS -X POST ${brokerBase}/v1/jobs \\
   -H 'Content-Type: application/json' \\
-  -d '{
-    "client_req_id":   "quickstart-demo-001",
-    "encrypted_skill": "summarize",
-    "encrypted_data":  "The broker is a t3.small control plane ...",
-    "requester_sig":   "0x",
-    "result_pubkey":   "0x",
-    "stripe_pi_id":    "pi_demo_0001"
-  }'
+  -d "{
+    \\"client_req_id\\":   \\"quickstart-demo-001\\",
+    \\"encrypted_skill\\": \\"summarize\\",
+    \\"encrypted_data\\":  \\"The broker is a t3.small control plane ...\\",
+    \\"requester_sig\\":   \\"0x\\",
+    \\"result_pubkey\\":   \\"0x\\",
+    \\"shared_payment_token\\": \\"$SPT\\"
+  }"
 
 # Returns:
 #   {"job_id": "job_...", "state": "queued",
 #    "status_url": "/v1/jobs/job_...", "job_access_token": "jobtok_...",
 #    "idempotent_replay": false}
 
-# 2. Poll (auth with the job_access_token returned in step 1).
-curl -sS -H "Authorization: Bearer jobtok_..." "${brokerBase}/v1/jobs/job_..."
+# 3. Poll (auth with the job_access_token returned in step 2).
+curl -sS -H "Authorization: Bearer *** "${brokerBase}/v1/jobs/job_..."
 
-# 3. Read the plaintext output (demo mode keeps it in result.output).
+# 4. Read the plaintext output (demo mode keeps it in result.output).
 #    Production output is encrypted — use the Python quickstart.
 `;
 ---
@@ -221,7 +245,12 @@ print(json.dumps(job.get("payment"), indent=2))
       <pre class="vf-code mt-4 max-w-prose-vf"><code>{pyScript}</code></pre>
 
       <h3 class="font-display font-semibold text-ink mt-12 text-display-sm">Run</h3>
-      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`# Defaults match the demo path (no Stripe charge).
+      <pre class="vf-code mt-4 max-w-prose-vf"><code>{`# Defaults to the demo path — script mints an spt_demo_… token from
+# /v1/demo/shared-payment-token and submits with shared_payment_token.
+BROKER=https://verdant.codepilots.co.uk \\
+  python3 quickstart.py
+
+# Or, legacy: pass pi_demo_0001 directly (backward compatible).
 BROKER=https://verdant.codepilots.co.uk \\
 STRIPE_PI_ID=pi_demo_0001 \\
   python3 quickstart.py
@@ -267,7 +296,7 @@ STRIPE_PI_ID=pi_demo_0001 \\
           <h3 class="font-display font-semibold text-ink text-display-sm">1. Submit (control plane)</h3>
           <p class="mt-3">
             <code class="font-mono text-copper">POST /v1/jobs</code> lands on the t3.small control plane.
-            The daemon validates your <code class="font-mono text-copper">stripe_pi_id</code>, generates
+            The daemon validates your <code class="font-mono text-copper">shared_payment_token</code> (or legacy <code class="font-mono text-copper">stripe_pi_id</code>), generates
             a per-job <code class="font-mono text-copper">job_access_token</code> (for the client) and an internal <code class="font-mono text-copper">llm_token</code> (10-minute TTL, for the worker), writes an
             envelope to the EFS inbox, and asynchronously launches the TEE worker. Returns 202 immediately
             with <code class="font-mono text-copper">job_id</code> — you don't wait for execution.

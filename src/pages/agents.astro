@@ -24,16 +24,26 @@ const discoverCurl = `curl -sS ${brokerBase}/v1/discover`;
 const healthCurl   = `curl -sS ${brokerBase}/healthz`;
 const skillsCurl   = `curl -sS ${brokerBase}/v1/skills`;
 
-const submitCurl = `curl -sS -X POST ${brokerBase}/v1/jobs \\
+const submitCurl = `# Step 1: mint a stub Stripe ACS Shared Payment Token (demo).
+# In live mode the spt_… would come from the Stripe Link CLI or a Connect platform.
+SPT=$(curl -sS -X POST ${brokerBase}/v1/demo/shared-payment-token \\
+  -H 'Content-Type: application/json' -d '{}' | jq -r .shared_payment_token)
+
+# Step 2: submit using the SPT (preferred path).
+curl -sS -X POST ${brokerBase}/v1/jobs \\
   -H 'Content-Type: application/json' \\
-  -d '{
-    "client_req_id":   "agent-first-job-001",
-    "encrypted_skill": "summarize",
-    "encrypted_data":  "The VerdantForged broker is a t3.small control plane that brokers work into an attested TEE worker.",
-    "requester_sig":   "0x",
-    "result_pubkey":   "0x",
-    "stripe_pi_id":    "pi_demo_0001"
-  }'`;
+  -d "{
+    \\"client_req_id\\":   \\"agent-first-job-001\\",
+    \\"encrypted_skill\\": \\"summarize\\",
+    \\"encrypted_data\\":  \\"The VerdantForged broker is a t3.small control plane that brokers work into an attested TEE worker.\\",
+    \\"requester_sig\\":   \\"0x\\",
+    \\"result_pubkey\\":   \\"0x\\",
+    \\"shared_payment_token\\": \\"$SPT\\"
+  }"
+
+# Legacy alternative: pi_demo_0001 still works for backward compatibility
+# (the broker accepts either shared_payment_token or stripe_pi_id at submit time).
+# curl -sS -X POST ... -d '{..., "stripe_pi_id": "pi_demo_0001"}'
 
 const pollCurl = `JOB_ID="job_..."  # from submit response
 while true; do
@@ -93,8 +103,14 @@ const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
         </p>
         <p class="mt-3 text-body-sm text-ink-soft">
           Demo mode: no Stripe key is configured on the server, so jobs run
-          with synthetic PaymentIntents. No real card is charged. To use live
-          Stripe test mode, see the <a href="/docs#auth-heading" class="vf-link">auth model</a>
+          with synthetic PaymentIntents. No real card is charged. The two
+          demo paths are equivalent — mint a stub spt_demo_… token via
+          <code class="font-mono text-copper">/v1/demo/shared-payment-token</code>
+          (preferred), or pass the legacy
+          <code class="font-mono text-copper">stripe_pi_id: pi_demo_0001</code>
+          placeholder. To use live Stripe test mode (real spt_… tokens via
+          the Stripe Link CLI), see the
+          <a href="/docs#auth-heading" class="vf-link">auth model</a>
           on the API reference.
         </p>
       </div>
@@ -150,11 +166,10 @@ const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
         Submit a job.
       </h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
-        POST to <code class="font-mono text-copper">/v1/jobs</code>. The
-        response is immediate (<code class="font-mono text-copper">202 Accepted</code>)
-        with a <code class="font-mono text-copper">job_id</code> and a per-job
-        <code class="font-mono text-copper">llm_token</code> (10-minute TTL)
-        the worker will use to call the LLM proxy.
+        POST to <code class="font-mono text-copper">/v1/jobs</code> with a
+        Stripe ACS Shared Payment Token (spt_…) — either a stub spt_demo_…
+        from <code class="font-mono text-copper">/v1/demo/shared-payment-token</code>
+        (demo) or a real one from the Stripe Link CLI (live). The response is immediate (<code class="font-mono text-copper">202 Accepted</code>) with a <code class="font-mono text-copper">job_id</code> and a per-job <code class="font-mono text-copper">job_access_token</code> used to authenticate status polling and artifact downloads.
       </p>
       <p class="text-body text-ink-soft mt-4 max-w-prose-vf">
         The demo path passes <code class="font-mono text-copper">"0x"</code> for

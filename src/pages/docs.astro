@@ -70,8 +70,8 @@ const endpoints: Array<{
     id: 'submit-job',
     method: 'POST',
     path: '/v1/jobs',
-    purpose: 'Submit a job. Returns 202 with `job_id`, `state: queued`, and a per-job `job_access_token` used to authenticate status polling and artifact downloads. The worker receives a separate internal `llm_token` (10-min TTL) via the EFS envelope. Idempotent: send the same `client_req_id` twice and you get the original job back (`idempotent_replay: true`). For file jobs, include `input_files` to trigger the two-phase flow — the response is then `state: awaiting_worker` and the client polls GET /v1/jobs/{id} for presigned upload URLs.',
-    auth: 'No auth header. The `stripe_pi_id` is validated against Stripe (or accepted as-is in demo mode when `STRIPE_SECRET_KEY` is unset on the server).',
+    purpose: 'Submit a job. Returns 202 with `job_id`, `state: queued`, and a per-job `job_access_token` used to authenticate status polling and artifact downloads. The worker receives a separate internal `llm_token` (10-min TTL) via the EFS envelope. Idempotent: send the same `client_req_id` twice and you get the original job back (`idempotent_replay: true`). For file jobs, include `input_files` to trigger the two-phase flow — the response is then `state: awaiting_worker` and the client polls GET /v1/jobs/{id} for presigned upload URLs. Returns 402 Payment Required with a WWW-Authenticate Stripe ACS challenge when no payment token is presented.',
+    auth: 'No auth header. Payment is presented as a Stripe ACS Shared Payment Token (spt_…) — either in the JSON body (shared_payment_token / spt / payment_token / agent_payment_token), as `Authorization: Bearer spt_…`, or as a `Payment: spt_…` / `X-Payment: spt_…` header. In demo mode (no STRIPE_SECRET_KEY on the server, or BROKER_PAYMENT_STUB_MODE=1), the broker accepts stub tokens prefixed `spt_demo_` (mint via POST /v1/demo/shared-payment-token) and legacy `stripe_pi_id: pi_demo_…` placeholders.',
     request: `{
   "client_req_id":      "my-unique-id-001",   // required, ≤128 chars, idempotency key
   "encrypted_skill":    "summarize",           // required, skill name or registered id
@@ -79,7 +79,9 @@ const endpoints: Array<{
   "requester_sig":      "0x",                  // required; "0x" for demo,
                                                // Ed25519 sig otherwise
   "result_pubkey":      "<base64 32B X25519>", // required; "0x" disables encryption
-  "stripe_pi_id":       "pi_test_...",         // required; starts with pi_
+  "shared_payment_token": "spt_...",            // preferred (Stripe ACS); one of this OR
+  "stripe_pi_id":         "pi_test_...",       //   legacy PaymentIntent ID; either is
+                                               //   accepted, SPT preferred
   "webhook_url":        "https://...",         // optional; broker POSTs on finalize
   "timestamp":          "2026-06-28T07:00Z",   // optional; only used in sig payload
   "input_files":        [                      // optional; triggers two-phase file job
@@ -94,20 +96,25 @@ const endpoints: Array<{
   "job_access_token": "jobtok_...",
   "idempotent_replay": false
 }`,
-    curl: `curl -sS -X POST ${brokerBase}/v1/jobs \\
+    curl: `# Two-step demo: mint a stub SPT, then submit with it.
+SPT=$(curl -sS -X POST ${brokerBase}/v1/demo/shared-payment-token \\
+  -H 'Content-Type: application/json' -d '{}' | jq -r .shared_payment_token)
+
+curl -sS -X POST ${brokerBase}/v1/jobs \\
   -H 'Content-Type: application/json' \\
-  -d '{
-    "client_req_id":   "my-unique-id-001",
-    "encrypted_skill": "summarize",
-    "encrypted_data":  "The broker is a t3.small control plane that holds the queue and proxies LLM calls.",
-    "requester_sig":   "0x",
-    "result_pubkey":   "0x",
-    "stripe_pi_id":    "pi_demo_0001"
-  }'`,
+  -d "{
+    \\"client_req_id\\":   \\"my-unique-id-001\\",
+    \\"encrypted_skill\\": \\"summarize\\",
+    \\"encrypted_data\\":  \\"The broker is a t3.small control plane that holds the queue and proxies LLM calls.\\",
+    \\"requester_sig\\":   \\"0x\\",
+    \\"result_pubkey\\":   \\"0x\\",
+    \\"shared_payment_token\\": \\"$SPT\\"
+  }"`,
     errors: [
       { status: '400', body: `{"error": "missing fields: encrypted_skill, encrypted_data, ..."}` },
-      { status: '400', body: `{"error": "invalid stripe_pi_id format (must start with 'pi_'), got: ..."}` },
+      { status: '400', body: `{"error": "invalid shared_payment_token (must start with 'spt_' or 'spt_demo_' in stub mode)"}` },
       { status: '400', body: `{"error": "invalid requester_sig (signature failed verification)"}` },
+      { status: '402', body: `{"error": "payment required", "challenge": "Payment amount=\\"...\\", currency=\\"usd\\", method=\\"stripe\\", networkId=\\"\\""}` },
       { status: '429', body: `{"error": "daily token cap exceeded (.../50000 for account ...)", "code": "token_cap_exceeded"}` },
     ],
   },
@@ -347,10 +354,51 @@ Location: /v1/skills/my-skill@0.1.0
     ],
   },
   {
+    id: 'demo-shared-payment-token',
+    method: 'POST',
+    path: '/v1/demo/shared-payment-token',
+    purpose: 'Mint a stub Stripe ACS Shared Payment Token (spt_demo_…) for local demos and regions where Stripe Link is unavailable. Only enabled when STRIPE_SECRET_KEY is unset on the server, or when BROKER_PAYMENT_STUB_MODE=1 is set. Returns 404 when the broker is in live mode. The token is accepted by POST /v1/jobs exactly like a real spt_… — the broker short-circuits the Stripe API call and synthesizes a pi_demo_… PaymentIntent server-side.',
+    auth: 'None.',
+    request: `{
+  "amount_cents": 130,         // optional; defaults to estimated_job_cost_cents()
+  "currency":    "usd",        // optional; defaults to STRIPE_CURRENCY (usd)
+  "networkId":   "demo_network" // optional; defaults to STRIPE_NETWORK_ID or "demo_network"
+}`,
+    response: `{
+  "shared_payment_token": "spt_demo_a1b2c3d4e5f6g7h8j9k0m1n2",
+  "spt":                  "spt_demo_a1b2c3d4e5f6g7h8j9k0m1n2",
+  "credential_type":      "shared_payment_token",
+  "mode":                 "demo",
+  "source":               "route",
+  "amount":               130,
+  "currency":             "usd",
+  "networkId":            "demo_network",
+  "approved":             true,
+  "challenge":            "Payment amount=\\"130\\", currency=\\"usd\\", method=\\"stripe\\", networkId=\\"demo_network\\""
+}`,
+    curl: `SPT=$(curl -sS -X POST ${brokerBase}/v1/demo/shared-payment-token \\
+  -H 'Content-Type: application/json' -d '{}' | jq -r .shared_payment_token)
+
+# Then submit with it:
+curl -sS -X POST ${brokerBase}/v1/jobs \\
+  -H 'Content-Type: application/json' \\
+  -d "{
+    \\"client_req_id\\":   \\"demo-$(date +%s)\\",
+    \\"encrypted_skill\\": \\"summarize\\",
+    \\"encrypted_data\\":  \\"hello\\",
+    \\"requester_sig\\":   \\"0x\\",
+    \\"result_pubkey\\":   \\"0x\\",
+    \\"shared_payment_token\\": \\"$SPT\\"
+  }"`,
+    errors: [
+      { status: '404', body: `{"error": "payment demo stub disabled"}` },
+    ],
+  },
+  {
     id: 'topup-job',
     method: 'POST',
     path: '/v1/jobs/{job_id}/topup',
-    purpose: 'Handle insufficient funds. When a job completes but the held amount is less than the actual cost, the job transitions to state=awaiting_topup and the encrypted result is withheld. The client calls this endpoint with a new PaymentIntent ID covering the shortfall. On success the broker captures the topup PI, transitions to completed, and releases the result. Idempotent: the broker caches the first successful topup and returns it on retry.',
+    purpose: 'Handle insufficient funds. When a job completes but the held amount is less than the actual cost, the job transitions to state=awaiting_topup and the encrypted result is withheld. The client calls this endpoint with a new PaymentIntent ID (stripe_pi_id, legacy) or a new Stripe ACS Shared Payment Token (shared_payment_token / spt) covering the shortfall. On success the broker captures the topup instrument, transitions to completed, and releases the result. Idempotent: the broker caches the first successful topup and returns it on retry.',
     auth: 'Authorization: Bearer <...03e.',
     request: `{
   "stripe_pi_id": "pi_topup_xxx"
@@ -456,61 +504,73 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
     </section>
 
     <!-- Auth model -->
-    <section class="vf-container section-sm" aria-labelledby="auth-heading">
-      <div class="vf-divider mb-16"></div>
-      <p class="vf-eyebrow">Auth model</p>
-      <h2 id="auth-heading" class="vf-heading-section mt-6 max-w-4xl">Four doors, four keys.</h2>
-      <p class="vf-body-lead mt-8 max-w-2xl">
-        The broker uses four distinct credentials. None of them are the real LLM API key.
-      </p>
-      <div class="mt-12 grid grid-cols-1 md:grid-cols-4 gap-6 max-w-5xl">
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Public</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">No header</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">GET /v1/discover</code>,
-            <code class="font-mono text-copper">/healthz</code>,
-            <code class="font-mono text-copper">POST /v1/jobs</code> (submit).
-            Anyone can read; nothing leaks the real LLM key.
+        <section class="vf-container section-sm" aria-labelledby="auth-heading">
+          <div class="vf-divider mb-16"></div>
+          <p class="vf-eyebrow">Auth model</p>
+          <h2 id="auth-heading" class="vf-heading-section mt-6 max-w-4xl">Five doors, five credentials.</h2>
+          <p class="vf-body-lead mt-8 max-w-2xl">
+            The broker uses five distinct credentials. None of them are the real LLM API key.
           </p>
-        </div>
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Per-job</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">job_access_token</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;job_access_token&gt;</code>.
-            Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
-            Required for job-scoped endpoints: status polling, artifacts, topup, ack, ready.
-          </p>
-        </div>
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Per-job (internal)</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">llm_token</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;llm_token&gt;</code>.
-            10-min TTL. Passed to the worker via EFS envelope (never returned to the client).
-            Workers use this for the LLM proxy. Per-job budget cap (50k tokens/day/account).
-          </p>
-        </div>
-        <div class="vf-card">
-          <p class="vf-eyebrow text-verdigris-deep">Server-side</p>
-          <p class="font-display font-semibold text-ink mt-3 text-display-sm">BROKER_SKILLS_API_KEY</p>
-          <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;BROKER_SKILLS_API_KEY&gt;</code>.
-            Operator-configured. Used only by
-            <code class="font-mono text-copper">POST /v1/skills</code> and
-            <code class="font-mono text-copper">POST /v1/skills/&#123;name&#125;/wasm</code>.
-            Constant-time comparison. If unset on the server, registration is 503.
-          </p>
-        </div>
-      </div>
-    </section>
+          <div class="mt-12 grid grid-cols-1 md:grid-cols-5 gap-6 max-w-6xl">
+            <div class="vf-card">
+              <p class="vf-eyebrow text-verdigris-deep">Public</p>
+              <p class="font-display font-semibold text-ink mt-3 text-display-sm">No header</p>
+              <p class="text-body-sm text-ink-soft mt-4">
+                <code class="font-mono text-copper">GET /v1/discover</code>,
+                <code class="font-mono text-copper">/healthz</code>,
+                <code class="font-mono text-copper">POST /v1/jobs</code> (submit, when an SPT is in the body).
+                Anyone can read; nothing leaks the real LLM key.
+              </p>
+            </div>
+            <div class="vf-card">
+              <p class="vf-eyebrow text-verdigris-deep">Payment</p>
+              <p class="font-display font-semibold text-ink mt-3 text-display-sm">Stripe ACS spt_…</p>
+              <p class="text-body-sm text-ink-soft mt-4">
+                <code class="font-mono text-copper">shared_payment_token</code> field,
+                <code class="font-mono text-copper">Authorization: Bearer spt_…</code>, or
+                <code class="font-mono text-copper">Payment: spt_…</code> header.
+                Out-of-band token from the Stripe Link CLI (live) or
+                <code class="font-mono text-copper">/v1/demo/shared-payment-token</code> (demo).
+                <code class="font-mono text-copper">stripe_pi_id</code> is also accepted for backward compatibility.
+              </p>
+            </div>
+            <div class="vf-card">
+              <p class="vf-eyebrow text-verdigris-deep">Per-job</p>
+              <p class="font-display font-semibold text-ink mt-3 text-display-sm">job_access_token</p>
+              <p class="text-body-sm text-ink-soft mt-4">
+                <code class="font-mono text-copper">Authorization: Bearer &lt;jo...de></code>.
+                Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
+                Required for job-scoped endpoints: status polling, artifacts, topup, ack, ready.
+              </p>
+            </div>
+            <div class="vf-card">
+              <p class="vf-eyebrow text-verdigris-deep">Per-job (internal)</p>
+              <p class="font-display font-semibold text-ink mt-3 text-display-sm">llm_token</p>
+              <p class="text-body-sm text-ink-soft mt-4">
+                <code class="font-mono text-copper">Authorization: Bearer &lt;ll...de></code>.
+                10-min TTL. Passed to the worker via EFS envelope (never returned to the client).
+                Workers use this for the LLM proxy. Per-job budget cap (50k tokens/day/account).
+              </p>
+            </div>
+            <div class="vf-card">
+              <p class="vf-eyebrow text-verdigris-deep">Server-side</p>
+              <p class="font-display font-semibold text-ink mt-3 text-display-sm">BROKER_SKILLS_API_KEY</p>
+              <p class="text-body-sm text-ink-soft mt-4">
+                <code class="font-mono text-copper">Authorization: Bearer &lt;BR...de></code>.
+                Operator-configured. Used only by
+                <code class="font-mono text-copper">POST /v1/skills</code> and
+                <code class="font-mono text-copper">POST /v1/skills/&#123;name&#125;/wasm</code>.
+                Constant-time comparison. If unset on the server, registration is 503.
+              </p>
+            </div>
+          </div>
+        </section>
 
     <!-- Endpoints -->
     <section class="vf-container section" aria-labelledby="endpoints-heading">
       <div class="vf-divider mb-16"></div>
       <p class="vf-eyebrow">Endpoints</p>
-      <h2 id="endpoints-heading" class="vf-heading-section mt-6 max-w-4xl">All 16 routes.</h2>
+      <h2 id="endpoints-heading" class="vf-heading-section mt-6 max-w-4xl">All 17 routes.</h2>
       <p class="vf-body-lead mt-8 max-w-2xl">
         Every endpoint below was exercised against the live broker at
         <a href={brokerBase} class="vf-link" rel="noopener">{brokerBase}</a>
