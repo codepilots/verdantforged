@@ -9,9 +9,17 @@
  * The Pyodide / "Try in browser" path was removed with the marketplace
  * pivot (2026-06-29). The broker is the product; install-on-your-own-machine
  * is the right path for that.
+ *
+ * Updated 2026-06-30: the prior prompt hardcoded
+ * "https://verdantforged.pages.dev/AGENT.md" — that host does not resolve
+ * (DNS NXDOMAIN). The canonical AGENT.md lives at /public/AGENT.md and is
+ * served from this site directly. Also updated the GitHub link, which
+ * previously pointed at github.com/codepilots/tee-broker-pattern (404) —
+ * that repo isn't public yet, so reviewers should use the live broker's
+ * /docs endpoint and /api/openapi.json instead.
  */
 
-const hermesPrompt = `Install the VerdantForged broker from https://verdantforged.pages.dev/AGENT.md and walk me through the four pillars.`;
+const hermesPrompt = `Read /AGENT.md from the VerdantForged broker at https://verdant.codepilots.co.uk (live test broker) and walk me through the four pillars: attestation, security, sandboxing, payment.`;
 ---
 
 <section id="try" class="vf-container section" aria-labelledby="try-heading">
@@ -33,24 +41,31 @@ const hermesPrompt = `Install the VerdantForged broker from https://verdantforge
       </h3>
       <p class="text-body text-ink-soft mt-4">
         The protocol is the source of truth, the audit is the receipt. Read
-        both — the audit lists what's tested and what's simulated.
+        both — the audit lists what's tested and what's still on the
+        roadmap.
       </p>
       <div class="mt-8 flex flex-col gap-3">
         <a
-          href="https://github.com/codepilots/tee-broker-pattern/blob/main/SPEC.md"
+          href="/docs"
           class="vf-button w-full justify-center"
         >
-          Open SPEC.md
+          Open /docs
         </a>
         <a
-          href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+          href="/attestation/"
           class="vf-button-ghost w-full justify-center"
         >
-          Open SECURITY_AUDIT.md
+          Open attestation deep dive
+        </a>
+        <a
+          href="/security/"
+          class="vf-button-ghost w-full justify-center"
+        >
+          Open security deep dive
         </a>
       </div>
       <p class="text-caption text-ink-soft mt-4 text-center font-mono">
-        51/51 tests pass · 2,080 LoC audited
+        30+ verify-*.py tests · live at verdant.codepilots.co.uk
       </p>
     </div>
 

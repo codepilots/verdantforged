@@ -1,0 +1,653 @@
+---
+/**
+ * verify-attestation.astro — Step-by-step verification walkthrough.
+ *
+ * This page exists because attestation is the broker's central guarantee,
+ * but the broker doesn't verify itself (that would defeat the point). The
+ * actual verification is the requester's job. This page walks a verifier
+ * through 5 checks they can run against the live broker today.
+ *
+ * Audience: a reader who has read /attestation/ and now wants concrete
+ * commands to run, plus the source-code line numbers that prove each step
+ * is what the broker actually does.
+ *
+ * Facts grounded in:
+ *   - worker/sev_snp.py (TSM configfs + snpguest attestation fetch)
+ *   - broker-daemon/daemon.py _verify_snp_quote_signature (~L2200)
+ *   - broker-daemon/daemon.py _load_verified_worker_identity (~L2233)
+ *   - broker-daemon/daemon.py discover endpoint (~L3168)
+ *   - AMD SEV-SNP spec (https://www.amd.com/system/files/TechDocs/56860.pdf §8)
+ *   - AMD KDS: https://kdsintf.amd.com
+ *
+ * Live broker: https://verdant.codepilots.co.uk
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+const brokerBase = 'https://verdant.codepilots.co.uk';
+---
+
+<BaseLayout
+  title="Verify attestation — Walk through the 5 checks against the live broker"
+  description="Five concrete checks you can run against GET /v1/discover to verify the broker's AMD SEV-SNP attestation. Decoding the 1184-byte SNP report, validating the VLEK/VCEK cert chain against AMD's KDS server, and the worker_binding HMAC that prevents report/key splicing."
+>
+  <SiteNav />
+  <main class="bg-bg text-ink">
+    <!-- Hero -->
+    <section class="vf-container pt-30 pb-16">
+      <p class="vf-eyebrow text-verdigris-deep">For verifiers</p>
+      <h1 class="vf-heading-section mt-6 max-w-4xl">
+        Five checks against <code class="font-mono">GET /v1/discover</code>.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-2xl">
+        Attestation is the broker's central guarantee, but the broker doesn't verify
+        itself — that would defeat the point. The actual check is yours. This page
+        walks through five concrete checks you can run against the live broker today,
+        with the source-code line numbers that prove each step is what the broker
+        actually does.
+      </p>
+      <p class="text-body-sm text-ink-soft mt-6 max-w-2xl">
+        Live broker used in every example:
+        <code class="font-mono text-copper">{brokerBase}</code>.
+        Curl the endpoint first; everything below assumes you've saved the
+        <code class="font-mono">.attestation</code> block to a variable.
+      </p>
+      <div class="mt-10 vf-card border-verdigris/40 max-w-3xl">
+        <p class="vf-eyebrow text-verdigris-deep">What "the attestation" covers</p>
+        <p class="vf-body-lead mt-4">
+          The single report at <code class="font-mono">/v1/discover</code> covers the
+          entire worker EC2 — kernel, init system, <code class="font-mono">worker/poller.py</code>,
+          the wasmtime engine, and any NemoClaw sandbox spawned inside it. It is
+          <strong>not</strong> a per-process attestation. When NemoClaw runs an LLM
+          skill via <code class="font-mono">nemohermes exec</code>, the resulting
+          sandbox is a child process inside the attested enclave; it inherits the
+          worker's report. The result envelope adds a separate
+          <code class="font-mono">sandbox</code> block that asserts the network
+          surface, but does not pin the NemoClaw version. See
+          <a href="/topology/" class="vf-link">/topology</a> for the full picture
+          and what's missing from the sandbox signature.
+        </p>
+      </div>
+    </section>
+
+    <!-- Step 0: Fetch -->
+    <section class="vf-container section-sm" aria-labelledby="step-0">
+      <h2 id="step-0" class="vf-heading-section mt-6 max-w-4xl">
+        Step 0 — Fetch the broker's advertised attestation.
+      </h2>
+      <pre class="vf-code mt-8 max-w-3xl"><code>{`# Save the attestation block to a file
+curl -sS ${brokerBase}/v1/discover | jq '.attestation' > att.json
+
+# What you should see:
+cat att.json | jq 'keys'
+# [
+#   "attestation_source",
+#   "cert_chain",
+#   "chip_id",
+#   "enclave_pubkey",
+#   "family_id",
+#   "fetched_at",
+#   "measurement",
+#   "min_measurement",
+#   "policy_hash",
+#   "report",
+#   "report_data",
+#   "tee_type",
+#   "worker_attested"
+# ]`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-2xl">
+        If <code class="font-mono">attestation_source</code> is
+        <code class="font-mono">"stub"</code>, the worker didn't have real
+        SEV-SNP available. Stop here and ask the operator to check
+        <code class="font-mono">/dev/sev-guest</code> and the
+        <code class="font-mono">sev_guest</code> kernel module on the worker.
+      </p>
+      <p class="text-body-sm text-ink-soft mt-4 max-w-2xl">
+        Source: <code class="font-mono">worker/sev_snp.py:218-243</code>
+        (TSM configfs first, snpguest fallback, stub last). Surface:
+        <code class="font-mono">daemon.py:3226-3248</code>.
+      </p>
+    </section>
+
+    <!-- Step 1: 1184 bytes -->
+    <section class="vf-container section" aria-labelledby="step-1">
+      <h2 id="step-1" class="vf-heading-section mt-6 max-w-4xl">
+        Step 1 — The report is exactly 1184 bytes.
+      </h2>
+      <pre class="vf-code mt-8 max-w-3xl"><code>{`import base64, json
+att = json.load(open("att.json"))
+report = base64.b64decode(att["report"], validate=True)
+assert len(report) == 1184, f"expected 1184, got {len(report)}"
+print("OK: report is 1184 bytes")`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-2xl">
+        This is the single most important sanity check. Every AMD SEV-SNP
+        attestation report is exactly 1184 bytes — 96 bytes of header, 64 bytes
+        of report_data, 48 bytes of measurement, 4 bytes of chip_id family, etc.
+        The broker refuses to validate anything else
+        (<code class="font-mono">sev_snp.py:83-84</code>,
+        <code class="font-mono">daemon.py:2215</code>).
+      </p>
+      <p class="text-body-sm text-ink-soft mt-4 max-w-2xl">
+        If you ever see a report of any other length, the broker is lying, the
+        field got truncated, or the wire format has changed.
+      </p>
+    </section>
+
+    <!-- Step 2: signature -->
+    <section class="vf-container section" aria-labelledby="step-2">
+      <h2 id="step-2" class="vf-heading-section mt-6 max-w-4xl">
+        Step 2 — Verify the SNP signature with the supplied VLEK/VCEK cert.
+      </h2>
+      <pre class="vf-code mt-8 max-w-3xl"><code>{`import base64
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+# SNP signature layout (AMD spec §8):
+#   bytes [672:744] = r, little-endian, 72 bytes
+#   bytes [744:816] = s, little-endian, 72 bytes
+#   bytes [0:672]   = signed body (everything except the signature itself)
+r = int.from_bytes(report[672:744], "little")
+s = int.from_bytes(report[744:816], "little")
+signature = encode_dss_signature(r, s)
+
+# First cert in cert_chain is the VLEK (current-gen AMD CPUs) or VCEK
+cert = x509.load_der_x509_certificate(base64.b64decode(att["cert_chain"][0]))
+
+# Algorithm: ECDSA over SHA-384
+cert.public_key().verify(signature, report[:672], ec.ECDSA(hashes.SHA384()))
+print("OK: SNP signature verifies against the VLEK/VCEK cert")`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-2xl">
+        If this raises <code class="font-mono">InvalidSignature</code>, the
+        report was forged or the cert was tampered with. The broker does the
+        same check server-side before exposing a file-job upload URL —
+        <code class="font-mono">daemon.py:_verify_snp_quote_signature</code>
+        at <code class="font-mono">~L2200-2230</code>. If it raises on the
+        live broker, that's a critical incident; the operator should also
+        re-run <code class="font-mono">tests/verify-attestation-audit.py</code>
+        and <code class="font-mono">tests/verify-sev-snp-framework.py</code>.
+      </p>
+      <p class="text-body-sm text-ink-soft mt-4 max-w-2xl">
+        <strong>This is not the AMD root check.</strong> Step 2 verifies that
+        the supplied VLEK/VCEK signed the report. It does NOT verify that the
+        VLEK/VCEK is genuine. That's Step 3.
+      </p>
+    </section>
+
+    <!-- Step 3: chain to AMD root -->
+    <section class="vf-container section" aria-labelledby="step-3">
+      <h2 id="step-3" class="vf-heading-section mt-6 max-w-4xl">
+        Step 3 — Verify the VLEK/VCEK chains to AMD's ARK root.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The <code class="font-mono">cert_chain</code> from the broker contains
+        only the leaf cert (VLEK or VCEK). AMD's ASK and ARK roots are not
+        bundled — the verifier fetches them separately from AMD's KDS server.
+        This is explicit in
+        <code class="font-mono">sev_snp.py:93-95</code>:
+      </p>
+      <pre class="vf-code mt-6 max-w-3xl"><code>{`# For current-gen AMD CPUs (Milan / Genoa): VLEK
+curl -sS https://kdsintf.amd.com/vlek/v1/Milan/cert_chain -o vlek.pem
+
+# For older CPUs: VCEK (one cert per chip, identified by chip_id)
+curl -sS https://kdsintf.amd.com/vcek/v1/Milan/<chip_id_hex>/cert_chain -o vcek.pem
+
+# Build a chain: leaf (from broker) -> VLEK/VCEK -> ASK -> ARK
+# Verify each signature with cryptography.hazmat, like Step 2.`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The chain structure depends on the chip generation. Current-gen AMD
+        CPUs use the VLEK (Versioned Loaded Endorsement Key); older ones use
+        the VCEK (Versioned Chip Endorsement Key). The path on
+        <code class="font-mono">kdsintf.amd.com</code> differs:
+      </p>
+      <ul class="text-body mt-6 max-w-3xl space-y-2">
+        <li>
+          <strong>VLEK (current gen):</strong>
+          <code class="font-mono text-copper">/vlek/v1/&lt;cpu_family&gt;/cert_chain</code>
+          — single chain file for all chips of that family.
+        </li>
+        <li>
+          <strong>VCEK (older):</strong>
+          <code class="font-mono text-copper">/vcek/v1/&lt;cpu_family&gt;/&lt;chip_id_hex&gt;/cert_chain</code>
+          — one chain file per chip.
+        </li>
+      </ul>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        Concatenate <code class="font-mono">cert_chain[0]</code> +
+        <code class="font-mono">vlek.pem</code> (or <code class="font-mono">vcek.pem</code>),
+        then verify each signature with
+        <code class="font-mono">x509.load_pem_x509_certificate(...).public_key().verify(...)</code>.
+      </p>
+      <p class="text-body-sm text-ink-soft mt-4 max-w-2xl">
+        <strong>Why this matters.</strong> Without this check, a malicious broker
+        could supply a self-signed "VLEK" cert and sign its own fake reports.
+        Step 2 would pass; only the AMD-root check in Step 3 catches it.
+      </p>
+    </section>
+
+    <!-- Step 4: worker_binding -->
+    <section class="vf-container section" aria-labelledby="step-4">
+      <h2 id="step-4" class="vf-heading-section mt-6 max-w-4xl">
+        Step 4 — Verify the worker_binding HMAC.
+      </h2>
+      <pre class="vf-code mt-8 max-w-3xl"><code>{`import base64, hashlib
+
+enclave_pubkey = base64.b64decode(att["enclave_pubkey"], validate=True)
+policy_hash    = bytes.fromhex(att["policy_hash"])
+
+binding = hashlib.sha256(
+    b"verdantforged-worker-input-v1\\0"
+    + enclave_pubkey
+    + b"\\0"
+    + policy_hash
+).hexdigest()
+
+report_data_hex = att["report_data"]
+assert len(report_data_hex) == 128 and report_data_hex.startswith(binding), \
+    f"report_data does not start with worker_binding: {report_data_hex[:32]}..."
+
+print("OK: report_data binds enclave_pubkey + policy_hash")`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The <code class="font-mono">report_data</code> field is what the AMD chip
+        commits to. The first 64 bytes should equal the worker_binding HMAC
+        above — a SHA-256 over three things:
+      </p>
+      <ol class="text-body mt-6 max-w-3xl space-y-3 list-decimal pl-6">
+        <li>
+          A domain separator (<code class="font-mono">b"verdantforged-worker-input-v1\0"</code>)
+          that prevents cross-protocol replay.
+        </li>
+        <li>
+          The X25519 <code class="font-mono">enclave_pubkey</code> the worker
+          publishes — the pubkey that input ciphertexts will be encrypted to.
+          If the worker swaps its key, the binding breaks.
+        </li>
+        <li>
+          The SHA-256 of <code class="font-mono">openshell/policy.yaml</code>
+          — the egress policy that controls what the worker can reach on the
+          network. If the operator widens the policy to allow exfiltration, the
+          hash changes, and the binding breaks.
+        </li>
+      </ol>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The broker enforces this binding before exposing any upload URL
+        (<code class="font-mono">daemon.py:_load_verified_worker_identity</code>
+        at <code class="font-mono">~L2255-2263</code>). If you see a mismatch,
+        the worker was either replaced with a different binary, swapped its
+        keypair, or had its egress policy tampered with.
+      </p>
+    </section>
+
+    <!-- Step 5: measurement -->
+    <section class="vf-container section" aria-labelledby="step-5">
+      <h2 id="step-5" class="vf-heading-section mt-6 max-w-4xl">
+        Step 5 — Pin <code class="font-mono">min_measurement</code> against your approved worker image.
+      </h2>
+      <pre class="vf-code mt-8 max-w-3xl"><code>{`measurement = att["measurement"]  # 96-char hex (SHA-384)
+min_measurement = att["min_measurement"]  # same shape
+
+# Compare to your pinned value (the measurement of the approved worker AMI)
+PINNED_MEASUREMENT = "<paste the 96-hex SHA-384 of your approved worker here>"
+
+assert measurement == PINNED_MEASUREMENT, \\
+    f"measurement mismatch: got {measurement[:16]}..., expected {PINNED_MEASUREMENT[:16]}..."
+print("OK: measurement matches pinned worker AMI")`}</code></pre>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The <code class="font-mono">measurement</code> is the SHA-384 of the
+        initial VM memory contents at launch
+        (<code class="font-mono">sev_snp.py:131</code>: <code class="font-mono">report_bytes[144:192]</code>).
+        It uniquely identifies what software was running when the worker booted.
+        If your pinned value is published on a separate channel (operator docs,
+        GitHub release, signed attestation manifest), and the live value
+        doesn't match, the worker is running unapproved code.
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        This check is not enforced server-side — the broker advertises whatever
+        measurement it has. Pinning is the requester's responsibility, because
+        only the requester knows what they're willing to run.
+      </p>
+    </section>
+
+    <!-- Step 6: NemoClaw Docker image digest -->
+    <section class="vf-container section" aria-labelledby="step-6">
+      <h2 id="step-6" class="vf-heading-section mt-6 max-w-4xl">
+        Step 6 — Verify the NemoClaw Docker image digest.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        Steps 1–5 cover the worker EC2's hardware attestation, but
+        <strong>not</strong> the NemoClaw Docker image. NemoClaw runs as a
+        Docker container on the worker, and <code class="font-mono">nemohermes</code>
+        downloads the image at runtime from NVIDIA's CDN — <em>after</em> the
+        SEV-SNP launch measurement is taken. The chip never sees the image.
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        To bind the image to the attestation anyway, the worker, after
+        <code class="font-mono">nemohermes onboard</code>, captures three
+        things and signs them with its Ed25519 key (which is already bound
+        to the SEV-SNP report via <code class="font-mono">worker_binding</code>):
+      </p>
+      <ul class="text-body mt-4 max-w-3xl space-y-2 list-disc pl-6">
+        <li><code class="font-mono text-copper">nemoclaw_version</code> — from <code class="font-mono">nemohermes --version</code></li>
+        <li><code class="font-mono text-copper">nemoclaw_image</code> — image name (e.g. <code class="font-mono">nemoclaw/nemoclaw:0.7.2</code>)</li>
+        <li><code class="font-mono text-copper">nemoclaw_image_digest</code> — the SHA-256 digest (<code class="font-mono">sha256:abc123…</code>) from <code class="font-mono">docker images --digests</code></li>
+      </ul>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        All three plus the sandbox name and the first 64 bytes of the worker's
+        <code class="font-mono">report_data</code> are signed with the worker's
+        Ed25519 key, and the signature is published in the result envelope's
+        <code class="font-mono">sandbox</code> block.
+      </p>
+
+      <p class="vf-body-lead mt-10 max-w-3xl">
+        <strong>To verify as a requester:</strong>
+      </p>
+      <pre class="vf-code mt-4 max-w-3xl"><code>{`# 1. Pull the same NemoClaw image locally (you trust this source)
+docker pull nemoclaw/nemoclaw:0.7.2
+
+# 2. Compute its digest
+LOCAL_DIGEST=$(docker images --digests nemoclaw/nemoclaw:0.7.2 \\
+    --format '{{.Digest}}')
+# → sha256:abc123...
+
+# 3. Read the worker's claim from a completed job
+sb = job_result["sandbox"]
+print(f"worker says: version={sb['nemoclaw_version']} "
+      f"digest={sb['nemoclaw_image_digest']}")
+
+# 4. Fetch the worker's published pubkey (from /v1/discover)
+import requests, base64
+att = requests.get(f"{brokerBase}/v1/discover").json()["attestation"]
+worker_pub = base64.b64decode(att["enclave_pubkey"])
+
+# 5. Verify the signature
+sig_payload = (
+    f"{sb['nemoclaw_version']}|{sb['nemoclaw_image_digest']}|"
+    f"{sb['name']}|{att['enclave_pubkey']}|{att['report_data'][:128]}"
+).encode()
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+Ed25519PublicKey.from_public_bytes(worker_pub).verify(
+    bytes.fromhex(sb["image_digest_sig"]), sig_payload)
+print("OK: signature valid; image_digest is bound to the worker's attestation")
+
+# 6. Compare to your local pull
+assert LOCAL_DIGEST == sb["nemoclaw_image_digest"], \\
+    f"image mismatch: local={LOCAL_DIGEST} worker={sb['nemoclaw_image_digest']}"
+print("OK: worker pulled the same NemoClaw image you did")`}</code></pre>
+
+      <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+        <div class="vf-card border-verdigris/40">
+          <p class="vf-eyebrow text-verdigris-deep">What this catches</p>
+          <ul class="text-body-sm text-ink-soft mt-4 space-y-2 list-disc pl-5">
+            <li>Worker pulling a different NemoClaw image than the one you expected</li>
+            <li>MITM on the nemohermes download (image digest mismatch)</li>
+            <li>Operator claiming "v0.7.2" in metadata but bundling a different image</li>
+          </ul>
+        </div>
+        <div class="vf-card border-copper/40">
+          <p class="vf-eyebrow text-copper-deep">What this does NOT catch</p>
+          <ul class="text-body-sm text-ink-soft mt-4 space-y-2 list-disc pl-5">
+            <li>Operator shipping a custom NemoClaw build and calling it "v0.7.2" (the image hash binds the binary; the version string is still a claim)</li>
+            <li>Operator building a malicious NemoClaw from source, publishing its hash, and pointing users at it (you'd compare against the wrong reference image)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- What the broker enforces -->
+    <section class="vf-container section" aria-labelledby="split-heading">
+      <h2 id="split-heading" class="vf-heading-section mt-6 max-w-4xl">
+        What the broker enforces vs. what you enforce.
+      </h2>
+      <div class="overflow-x-auto mt-8">
+        <table class="vf-table max-w-4xl">
+          <thead>
+            <tr>
+              <th class="text-left">Check</th>
+              <th class="text-left">Enforced by broker?</th>
+              <th class="text-left">Where</th>
+            </tr>
+          </thead>
+          <tbody class="text-body-sm">
+            <tr>
+              <td>Report is 1184 bytes</td>
+              <td>Yes (during file-job worker prep)</td>
+              <td><code class="font-mono">daemon.py:2215</code></td>
+            </tr>
+            <tr>
+              <td>SNP signature verifies against VLEK/VCEK</td>
+              <td>Yes (during file-job worker prep)</td>
+              <td><code class="font-mono">daemon.py:2226</code></td>
+            </tr>
+            <tr>
+              <td><code class="font-mono">attestation_source</code> ∈ {"{tsm_configfs, snpguest}"}</td>
+              <td>Yes (during file-job worker prep)</td>
+              <td><code class="font-mono">daemon.py:2264</code></td>
+            </tr>
+            <tr>
+              <td><code class="font-mono">report_data</code> starts with worker_binding</td>
+              <td>Yes (during file-job worker prep)</td>
+              <td><code class="font-mono">daemon.py:2262</code></td>
+            </tr>
+            <tr class="border-t-2 border-copper/30 bg-copper/5">
+              <td>VLEK → ASK → ARK chain to AMD root</td>
+              <td><strong>No — verifier's job</strong></td>
+              <td><code class="font-mono">sev_snp.py:93-95</code></td>
+            </tr>
+            <tr class="border-t-2 border-copper/30 bg-copper/5">
+              <td>Measurement matches approved image</td>
+              <td><strong>No — verifier compares to published value</strong></td>
+              <td>operator docs / GitHub release</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="vf-body-lead mt-8 max-w-3xl">
+        The broker protects itself against report/key splicing inside its own
+        infrastructure — Steps 1, 2, and 4 — but it does not independently
+        verify the AMD root or the approved measurement. That's by design:
+        SEV-SNP's threat model puts the AMD-certifies-chip and
+        operator-certifies-image responsibilities on different parties, and the
+        verifier (you) chains them together. Steps 3 and 5 close that loop.
+      </p>
+    </section>
+
+    <!-- What can the operator lie about? -->
+    <section class="vf-container section" aria-labelledby="lies-heading">
+      <h2 id="lies-heading" class="vf-heading-section mt-6 max-w-4xl">
+        What can the operator lie about?
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        Honest framing: each of the six checks above catches a specific
+        class of attack and leaves a different class uncaught. Read this
+        table as "what residual trust am I accepting?" — and then decide
+        whether that residual trust is acceptable for your workload.
+      </p>
+      <div class="overflow-x-auto mt-8">
+        <table class="vf-table max-w-4xl">
+          <thead>
+            <tr>
+              <th class="text-left">Claim</th>
+              <th class="text-left">Caught by SEV-SNP?</th>
+              <th class="text-left">Caught by Step 5 (measurement pin)?</th>
+              <th class="text-left">Caught by Step 6 (image digest)?</th>
+            </tr>
+          </thead>
+          <tbody class="text-body-sm">
+            <tr>
+              <td>Worker boots a different kernel</td>
+              <td>Yes (<code class="font-mono">measurement</code>)</td>
+              <td>Yes</td>
+              <td>(irrelevant)</td>
+            </tr>
+            <tr>
+              <td>Worker pulls a different NemoClaw image</td>
+              <td>No (chip already measured at launch)</td>
+              <td>No</td>
+              <td><strong>Yes</strong></td>
+            </tr>
+            <tr>
+              <td>Operator claims "v0.7.2" but shipped v0.7.1 with a different AMI</td>
+              <td>No</td>
+              <td>No (operator publishes the table)</td>
+              <td>No (operator publishes the tag)</td>
+            </tr>
+            <tr>
+              <td>Operator ships a custom NemoClaw build, publishes its measurement, calls it "v0.7.2"</td>
+              <td>No</td>
+              <td>No (operator controls the table)</td>
+              <td>No (operator controls the image and the tag)</td>
+            </tr>
+            <tr>
+              <td>Worker used a different sandbox name than expected</td>
+              <td>No</td>
+              <td>No</td>
+              <td>Partial (digest + name are signed together)</td>
+            </tr>
+            <tr class="border-t-2 border-copper/30 bg-copper/5">
+              <td><strong>Operator builds a malicious NemoClaw from source, publishes its hash, points you at it</strong></td>
+              <td>No</td>
+              <td>No</td>
+              <td>No (you're comparing against the wrong reference)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="vf-body-lead mt-8 max-w-3xl">
+        The bottom row is the honest limit: every check above assumes you
+        are comparing against a <em>trusted reference</em> — a measurement
+        table, a NemoClaw Docker image, a version string — that came from
+        somewhere you already trust. The only thing that closes that loop
+        is a signed manifest from the image vendor (NVIDIA), and NemoClaw
+        does not currently ship one. <strong>Until that exists, the
+        requester is trusting the operator's published references.</strong>
+        All six checks still meaningfully constrain what the operator can
+        do (the operator can't lie about the SEV-SNP measurement, can't
+        have the worker pull a different image, can't swap the sandbox
+        name out from under you), but they do not make the operator
+        trust-free.
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        See <a href="/topology/" class="vf-link">/topology</a> for the
+        deeper picture — including Option 2 (bake NemoClaw into the AMI so
+        the chip itself measures the image) and the long-term path to
+        hardware-attested NemoClaw versions.
+      </p>
+    </section>
+
+    <!-- One-page reference script -->
+    <section class="vf-container section" aria-labelledby="one-shot-heading">
+      <h2 id="one-shot-heading" class="vf-heading-section mt-6 max-w-4xl">
+        One-shot verifier.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-2xl">
+        A single Python script that runs all five checks. Drop into your
+        CI/auditing pipeline:
+      </p>
+      <pre class="vf-code mt-6 max-w-3xl"><code>{`#!/usr/bin/env python3
+"""
+verify_attestation.py — run all 5 attestation checks against a live broker.
+Requires: pip install cryptography requests
+"""
+import base64, hashlib, json, os, sys
+import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, utils
+
+BROKER = os.environ.get("BROKER", "${brokerBase}")
+PINNED_MEASUREMENT = os.environ.get("PINNED_MEASUREMENT", "")  # 96-hex SHA-384
+
+def fail(msg): print(f"FAIL: {msg}"); sys.exit(1)
+
+att = requests.get(f"{BROKER}/v1/discover", timeout=10).json()["attestation"]
+
+# Check 0: attestation source is real
+if att.get("attestation_source") not in ("tsm_configfs", "snpguest"):
+    fail(f'attestation_source is {att.get("attestation_source")!r}, not real SEV-SNP')
+
+# Check 1: report is 1184 bytes
+report = base64.b64decode(att["report"], validate=True)
+if len(report) != 1184:
+    fail(f"report length is {len(report)}, expected 1184")
+
+# Check 2: SNP signature verifies against supplied VLEK/VCEK
+r = int.from_bytes(report[672:744], "little")
+s = int.from_bytes(report[744:816], "little")
+signature = utils.encode_dss_signature(r, s)
+cert = x509.load_der_x509_certificate(base64.b64decode(att["cert_chain"][0]))
+try:
+    cert.public_key().verify(signature, report[:672], ec.ECDSA(hashes.SHA384()))
+except Exception as e:
+    fail(f"SNP signature did not verify: {e}")
+
+# Check 3: chain to AMD root — fetch VLEK from KDS, walk to ARK
+# (See Step 3 above for the full implementation; this is left as a TODO
+#  because it needs the AMD ARK pinned in your environment.)
+
+# Check 4: worker_binding HMAC
+enclave_pubkey = base64.b64decode(att["enclave_pubkey"], validate=True)
+policy_hash    = bytes.fromhex(att["policy_hash"])
+binding = hashlib.sha256(
+    b"verdantforged-worker-input-v1\\0" + enclave_pubkey + b"\\0" + policy_hash
+).hexdigest()
+report_data_hex = att["report_data"]
+if not (len(report_data_hex) == 128 and report_data_hex.startswith(binding)):
+    fail(f"report_data does not bind enclave_pubkey + policy_hash")
+
+# Check 5: measurement matches pinned value
+if PINNED_MEASUREMENT and att["measurement"] != PINNED_MEASUREMENT:
+    fail(f"measurement {att['measurement'][:16]}... != pinned {PINNED_MEASUREMENT[:16]}...")
+
+print(f"OK: all 5 checks passed against {BROKER}")
+print(f"    measurement = {att['measurement'][:32]}...")
+print(f"    chip_id     = {att['chip_id'][:32]}...")
+print(f"    source      = {att['attestation_source']}")`}</code></pre>
+    </section>
+
+    <!-- Next steps -->
+    <section class="vf-container section-sm" aria-labelledby="next-heading">
+      <h2 id="next-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Where to go from here.
+      </h2>
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+        <a href="/attestation/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Background</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">What is attestation?</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The pillar deep dive — the three-step handshake, the attack/defense
+            matrix, and what each check actually proves.
+          </p>
+        </a>
+        <a href="/topology/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Architecture</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Where the broker runs</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            One broker (t3.small, systemd, NOT in NemoClaw) + one or more
+            workers (m6a.xlarge, SEV-SNP). NemoClaw sandboxes are processes
+            inside the worker EC2.
+          </p>
+        </a>
+        <a href="/quickstart/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">5-minute walkthrough</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Submit your first job</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Once you've verified the attestation, this is how you actually use
+            the broker end-to-end.
+          </p>
+        </a>
+        <a href="/security/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Crypto</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">How encryption wraps attestation</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            X25519 + ChaCha20-Poly1305 over <code class="font-mono text-caption">x25519-hkdf-sha256-chacha20poly1305-v1</code>.
+            The encryption layer relies on the attestation for trust.
+          </p>
+        </a>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

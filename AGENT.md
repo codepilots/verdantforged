@@ -8,20 +8,21 @@ triggers:
   - "attestation"
   - "nemoclaw"
   - "sev-snp"
-  - "cha cha poly1305"
+  - "chacha poly1305"
   - "x25519"
   - "stripe paymentintent"
 agent_type: tee_broker
-version: 0.2.0
+version: 0.3.0
 test_broker: https://verdant.codepilots.co.uk
-source: https://github.com/codepilots/tee-broker-pattern
+source_dir: ~/hermes/competition/tee-broker-deploy/
+pattern_dir: ~/hermes/competition/tee-broker-pattern/
 created: 2026-06-19
-updated: 2026-06-29
+updated: 2026-06-30
 ---
 
 # VerdantForged
 
-A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a max lifetime, a payment escrow — and the broker deploys the work inside a fresh AMD SEV-SNP enclave. Funds release only on signed enclave teardown, refund automatically on failure.
+A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a max lifetime, a Stripe PaymentIntent ID — and the broker deploys the work inside a freshly-booted AMD SEV-SNP worker. Stripe captures the actual cost on success, refunds the hold on failure, and triggers a topup window when the actual exceeds the held.
 
 > If you are a Hermes agent reading this file, the human has asked you to install the VerdantForged skill. Walk through the steps below. Most are read-only. The final `curl` invokes prove the protocol end-to-end against the live test broker.
 
@@ -34,7 +35,7 @@ A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a
 3. How to set up a broker or use the live test broker
 4. How to submit a job, poll for the result, and decrypt the output
 5. How to register a custom skill with the broker
-6. How to verify the Rust implementation builds and tests pass
+6. How to run the broker's verify-*.py test suite against the live deployment
 
 ## Quick orientation
 
@@ -42,18 +43,21 @@ Read in this order:
 
 1. The landing page at `https://verdantforged.pages.dev/` — the 30-second pitch
 2. `/agents` — the operator/agent setup, the test broker URL, the submit loop
-3. `/quickstart` — the 5-minute walkthrough, end-to-end with a working script
+3. `/quickstart` — the 5-minute walkthrough, end-to-end with a working Python script
 4. `/docs` — the full API reference
-5. `../tee-broker-pattern/SECURITY_AUDIT.md` — the audit, including what is and isn't simulated
+5. `/security` — the cryptography deep dive (X25519 + ChaCha20-Poly1305 wire format)
+6. `/payment-flow` — the four lifecycle paths (completed, failed, awaiting_topup, abandoned)
+7. `/verify-attestation` — the verifier's checklist: 5 SEV-SNP checks + a 6th check that binds the NemoClaw Docker image digest to the worker's Ed25519 key, so a reviewer can pull the same image locally and verify it matches what the worker pulled. Source-code line numbers prove each step is what the broker actually does. Includes an honest "what can the operator lie about?" table.
+8. `/topology` — the deployment picture in one diagram: 1 broker (t3.small systemd service, NOT in NemoClaw) + 1+ workers (m6a.xlarge SEV-SNP), with NemoClaw sandboxes as processes inside the worker EC2. Includes the "Shipping now" / "Future work — Option 2" split for signed-sandbox attestation.
 
 ## The four pillars (one sentence each)
 
 | Pillar | What it delivers |
 |---|---|
-| **Attestation** | Every job runs inside a freshly-measured SEV-SNP enclave. The chip signs the measurement; you verify the chain before sending plaintext. |
-| **Security** | Per-job X25519 ephemeral keypair, ChaCha20-Poly1305 AEAD for the result. Forward secrecy per execution. |
-| **Sandboxing** | Fuel-limited execution (≤ 100M instructions), wall-clock cap (≤ 120s), default-DENY network policy, ephemeral storage. |
-| **Payment** | Stripe PaymentIntent verify-then-capture. The broker holds your card; capture only on signed enclave teardown. Refund on failure. |
+| **Attestation** | Every job runs inside a freshly-measured SEV-SNP worker (m6a.xlarge EC2). The chip signs the SHA-384 measurement; you verify the VCEK/VLEK cert chain before sending plaintext. |
+| **Security** | Per-job X25519 ephemeral keypair, ChaCha20-Poly1305 AEAD over `x25519-hkdf-sha256-chacha20poly1305-v1`. Worker signs result with Ed25519; broker independently re-signs. |
+| **Sandboxing** | wasmtime fuel meter (manifest-declared ≤ 10⁹, typical ≤ 10⁸) + epoch-interruption wall-clock cap (default 30s). OpenShell policy default-DENYs egress except to broker API and broker LLM proxy. |
+| **Payment** | Stripe PaymentIntent verify-then-capture. The broker holds your card in `requires_capture`; captures `actual_cents` on completed, refunds the PI on failed/timeout, posts a topup PI request on shortfall. |
 
 Deep dives on each pillar are at `/attestation`, `/security`, `/sandboxing`, `/payment`.
 
@@ -83,7 +87,7 @@ curl -sS -X POST https://verdant.codepilots.co.uk/v1/jobs \
     "result_pubkey":   "0x",
     "stripe_pi_id":    "pi_demo_0001"
   }'
-# Returns: {"job_id": "job_...", "state": "queued", "status_url": "/v1/jobs/job_...", "llm_token": "llm_...", "idempotent_replay": false}
+# Returns: {"job_id": "job_...", "state": "queued", "status_url": "/v1/jobs/job_...", "job_access_token": "jobtok_...", "idempotent_replay": false}
 
 # Poll until state is no longer "queued" or "running"
 JOB_ID="job_..."  # from submit response
@@ -91,7 +95,7 @@ while true; do
   RESP=$(curl -sS https://verdant.codepilots.co.uk/v1/jobs/$JOB_ID)
   STATE=$(echo "$RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')
   echo "state=$STATE"
-  case "$STATE" in completed|failed|timeout) echo "$RESP" | python3 -m json.tool; break;; esac
+  case "$STATE" in completed|failed|timeout|awaiting_topup) echo "$RESP" | python3 -m json.tool; break;; esac
   sleep 3
 done
 ```
@@ -101,9 +105,10 @@ done
 The production path uses real X25519 + ChaCha20-Poly1305:
 
 1. Generate a fresh X25519 keypair
-2. Submit the public key as `result_pubkey`
-3. The worker's ephemeral public key is in the encrypted blob (first 32 bytes)
-4. Derive the shared secret, decrypt with ChaCha20-Poly1305, context tag `b"verdantforged-result"`
+2. Encrypt `skill` and `data` to the enclave's ephemeral X25519 pubkey (from `/v1/discover.attestation.enclave_pubkey`)
+3. Submit your public key as `result_pubkey`
+4. The worker's ephemeral public key is the first 32 bytes of the encrypted blob
+5. Derive the shared secret, decrypt with ChaCha20-Poly1305, context tag `b"verdantforged-result"`
 
 The full working Python script is in the `/quickstart` page.
 
@@ -113,54 +118,58 @@ Requires `BROKER_SKILLS_API_KEY` configured on the broker. If unset, registratio
 
 ```bash
 curl -sS -X POST https://verdant.codepilots.co.uk/v1/skills \
-  -H "Authorization: Bearer $BROKE...KEY" \
+  -H "Authorization: Bearer $BROKER_SKILLS_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{
     "name":               "my-agent-skill",
     "version":            "0.1.0",
     "description":        "A skill for my agent.",
-    "wasm_manifest_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "wasm_manifest_hash": "<64-hex SHA-384 of manifest>",
     "entry_point":        "handle",
     "prompt_template":    "You are my-agent-skill. Respond concisely.",
     "resource_limits":    {"max_fuel": 10000000, "max_duration_ms": 60000, "max_memory_mb": 256}
   }'
 ```
 
-## Verify the Rust implementation builds and tests pass
+## Run the broker's verify-*.py test suite
+
+The live broker ships a Python test suite under `tee-broker-deploy/tests/verify-*.py`. Each script is a standalone Python file that exercises one slice of the broker against the live deployment.
 
 ```bash
-# From ~/hermes/competition/tee-broker-pattern/
-cargo test --workspace
+# From ~/hermes/competition/tee-broker-deploy/
+pip install -r requirements.txt
+pytest tests/ -v
 
-# Expected: 51/51 tests pass across 5 crates
-#   tee-broker-core:             ~27 tests (manifest, crypto, Nostr, reputation)
-#   tee-broker-attestation:       9 tests (SEV-SNP verification, mock provider)
-#   tee-broker-runner:            2 tests (decrypt → verify → execute → encrypt)
-#   tee-broker-skills/code-review: 12 tests (WASM static analysis)
-#   integration-tests:            1 test (full lifecycle)
+# Or run individual verify scripts:
+python3 tests/verify-crypto-e2e.py           # X25519 + ChaCha20-Poly1305 roundtrip
+python3 tests/verify-attestation-audit.py    # SEV-SNP report verification
+python3 tests/verify-stripe-integration.py   # verify + capture + refund + topup
+python3 tests/verify-sandbox-execution.py    # fuel + epoch interruption + output caps
 ```
 
 ## Security guarantees (the table to memorize)
 
 | Attack | What stops it |
 |---|---|
-| Broker reads the skill | Encrypted to enclave key; no debug interface in measured state |
-| Broker reads requester data | Encrypted to enclave key; same mechanism |
-| Broker copies the skill for later | Enclave is ephemeral; no persistent storage; measured boot |
-| Broker runs different code than approved | Attestation measurement = hash of approved runtime |
-| Broker runs a different LLM | Runtime fingerprint included in attestation |
-| Broker sends results anywhere except the requester | Default-DENY network; only broker API is in the allowlist |
-| Broker stalls indefinitely | Fuel limit + wall-clock timeout enforced by the runtime |
-| Broker fabricates a teardown receipt | Receipt requires enclave signature; signature requires attested state |
-| Broker overcharges you | Stripe captures only the actual cost; receipt is signed by the enclave |
-| Broker charges before the work runs | Verify-then-capture: Stripe hold is in `requires_capture` until teardown |
-| Past traffic is decrypted if a long-term key leaks | Forward secrecy: every job gets a fresh ephemeral X25519 keypair |
+| Broker reads the skill | Encrypted to enclave pubkey; plaintext only inside the attested worker |
+| Broker reads requester data | Encrypted to enclave pubkey; same mechanism |
+| Broker copies the skill for later | Worker is ephemeral (or warm-pool with no per-job persistence); EFS inbox deleted per-job |
+| Broker runs different code than approved | Skill_hash re-verified by the worker before wasmtime starts; mismatch is refused |
+| Broker runs a different LLM | LLM call routed through the broker proxy; real API key never enters the worker |
+| Broker sends results anywhere except the requester | Default-DENY OpenShell policy; only broker API in the allowlist |
+| Broker stalls indefinitely | Fuel limit + epoch-interruption wall-clock cap, both enforced by wasmtime |
+| Broker fabricates a successful result | broker_signature Ed25519 over (result_hash \| skill_hash \| input_hash); requester verifies both worker_signature and broker_signature |
+| Broker overcharges you | Stripe captures only the actual cost (padded to BROKER_MIN_CAPTURE_CENTS=50); full audit trail in the job's payment block |
+| Broker charges before the work runs | Stripe hold stays in `requires_capture` until `_finalize_job` runs |
+| Broker keeps your money in a dispute | Stripe's standard dispute process; broker holds the signed result envelope and full audit trail as evidence |
+| Past traffic is decrypted if a long-term key leaks | Per-job ephemeral X25519 keypair on both sides; no persistent keys |
 
 ## Resources
 
 - **Live test broker:** `https://verdant.codepilots.co.uk` (demo mode, no real card charged)
 - **Marketing site root:** `~/hermes/competition/tee-broker-site/`
-- **Rust workspace:** `~/hermes/competition/tee-broker-pattern/`
+- **Live broker source:** `~/hermes/competition/tee-broker-deploy/` (Python control plane + worker poller + NemoClaw install + OpenShell policy + Stripe bootstrap)
+- **Rust reference:** `~/hermes/competition/tee-broker-pattern/` (protocol reference implementation; not what's deployed)
 - **Pillar deep dives:** `/attestation`, `/security`, `/sandboxing`, `/payment`
 - **For agents:** `/agents` — the operator setup and the test broker access
 - **API reference:** `/docs` — every endpoint, every error code
@@ -172,18 +181,18 @@ If the human asks "what is VerdantForged" → explain in 30 seconds using the fo
 
 If the human asks "is it really running" → `curl -sS https://verdant.codepilots.co.uk/healthz` to confirm liveness, then `/v1/discover` to show the attestation block and pricing.
 
-If the human asks "is it secure" → point them at the security guarantees table above and the `SECURITY_AUDIT.md` deep dive.
+If the human asks "is it secure" → point them at the security guarantees table above and the `/security` deep dive on the site.
 
 If the human asks "how do I run a job" → walk them through the demo-path submit + poll loop above, then point at `/quickstart` for the production X25519 path.
 
-If the human asks "how do I host my own broker" → point them at `/agents` (the "Run your own broker" section) and `tee-broker-pattern/deploy/README.md`.
+If the human asks "how do I host my own broker" → point them at `/agents` (the "Run your own broker" section) and `tee-broker-deploy/README.md`.
 
-If the human asks "what are the limits" → read the "Residual risks" section of `SECURITY_AUDIT.md` and be honest. The notable known limitations for hackathon scope:
-- Simulated WASM execution (data passthrough) — production needs wasmtime with fuel limits
-- Simulated Stripe MPP release (log only) — production needs real Stripe API call with scoped key
-- Mock attestation provider — production needs real SEV-SNP `/dev/sev/guest`
-- Attestation source is `instance_id_sha256` in demo (not real SEV-SNP silicon) — production path is identical except for the source
-- No attestation replay protection (no nonce/challenge-response) — production needs challenge-response
-- No constant-time crypto guarantee
+If the human asks "what are the limits" → be honest. Known limitations for hackathon scope:
+
+- `MIN_CAPTURE_CENTS=50` — Stripe's minimum capture, so small jobs round up to $0.50
+- `TOPUP_TTL_MINUTES=10` — the shortfall window; if the requester doesn't top up, the job is abandoned and the PI is refunded
+- Result TTL 24h, presigned download URL TTL 15min
+- `max_fuel` per skill is capped at 10⁹; per-execution `max_duration_ms` at 600s
+- Worker is a single m6a.xlarge per region; concurrent jobs serialize on the EFS inbox
 
 The honest story sells better than overclaiming.

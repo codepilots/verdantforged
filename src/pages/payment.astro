@@ -33,8 +33,8 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
       },
       {
         n: '02',
-        title: 'Run. The enclave executes the work, the cost accrues, the receipt is signed.',
-        body: 'The enclave boots, runs the skill, accrues lease time and LLM tokens. At teardown, the enclave signs a receipt containing the actual fuel used, the actual tokens, the actual lease time, and the enclave\'s measurement. The receipt is part of the result envelope. The requester can verify the receipt against the attestation they accepted.',
+        title: 'Run. The enclave executes the work, the cost accrues.',
+        body: 'The worker boots inside the attested VM, runs the skill, accrues lease time and LLM tokens. The worker signs the result envelope with its Ed25519 key (worker_signature), then the broker re-signs it independently in _finalize_job (broker_signature) — both signatures cover (result_hash | skill_hash | input_hash). The signed envelope is what gets persisted on the jobs row and what the webhook delivers.',
       },
       {
         n: '03',
@@ -44,24 +44,24 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
     ],
   }}
   whatStopsWhat={[
-    { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost; the receipt is signed by the enclave and verifiable by you' },
+    { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost; the result envelope is signed by the broker and verifiable by you (broker_signature Ed25519 over result_hash|skill_hash|input_hash)' },
     { attack: 'Broker charges for a failed job',              fix: 'Failure path refunds the full hold — no partial captures, no fees retained' },
-    { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until the enclave signs a teardown receipt' },
+    { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until _finalize_job runs; capture requires a verified result envelope with broker_signature' },
     { attack: 'You run out of funds mid-job and get overcharged', fix: 'Shortfall pauses capture and asks for a topup with a 10-minute window; no auto-charge beyond what you authorised' },
     { attack: 'You walk away from the topup request',         fix: 'After 10 minutes the original hold is refunded; the job is abandoned, not silently captured' },
-    { attack: 'Broker keeps your money in case of a dispute', fix: 'Stripe\'s standard dispute process; the broker holds the signed enclave receipt and the trace as evidence' },
+    { attack: 'Broker keeps your money in case of a dispute', fix: 'Stripe\'s standard dispute process; the broker holds the broker-signed result envelope and the full audit trail as evidence' },
     { attack: 'You cannot tell what you were charged for',    fix: 'Every receipt is published with the Stripe PaymentIntent, charge, transfer, and refund IDs' },
   ]}
   lookAtTheCode={[
     {
       label: 'The four lifecycle paths',
       detail: 'Happy / failure / insufficient funds / abandoned topup — full code snippets, timelines, and the 7-event audit trail in /payment-flow.',
-      href: `${base}payment-flow`,
+      href: `${base}payment-flow/`,
     },
     {
       label: 'Pricing model',
       detail: 'Two line items: $0.20 per 15-minute session lease (pro-rata per second) + $0.001 per 1K tokens. Stripe fees (2.9% + $0.30) are passed through, not absorbed. Worked examples in /pricing.',
-      href: `${base}pricing`,
+      href: `${base}pricing/`,
     },
     {
       label: 'Terms and refund policy',

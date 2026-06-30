@@ -1,9 +1,9 @@
 {
   "$schema": "https://agent-discovery.org/v0.1/agent.schema.json",
   "name": "VerdantForged",
-  "description": "A broker-supported agent marketplace where three agents (Skill Provider, Requester, Environment Broker) collaborate via attested enclave execution. Built on NVIDIA NemoClaw SEV-SNP, Stripe MPP, and Hermes Agent.",
+  "description": "A TEE broker for agent workloads. Verifies AMD SEV-SNP attestation before execution, encrypts payloads to the enclave (X25519 + ChaCha20-Poly1305), and uses Stripe PaymentIntents with a verify-then-capture lifecycle so the requester only pays for work that actually ran. Live broker at https://verdant.codepilots.co.uk.",
   "version": "0.1.0",
-  "type": "marketplace_protocol",
+  "type": "tee_broker",
   "license": "MIT",
   "homepage": "https://verdantforged.pages.dev",
   "agent_instructions": {
@@ -14,10 +14,18 @@
     ]
   },
   "capabilities": {
-    "skill_install": true,
-    "protocol_verification": true,
-    "secure_execution": true,
-    "escrowed_payment": true
+    "attestation": "amd-sev-snp",
+    "submit_job": true,
+    "register_skill": true,
+    "fetch_discover": true,
+    "encrypted_payload": "x25519-hkdf-sha256-chacha20poly1305-v1",
+    "payment": "stripe-paymentintent-verify-then-capture"
+  },
+  "endpoints": {
+    "discover":       "https://verdant.codepilots.co.uk/v1/discover",
+    "submit_job":     "https://verdant.codepilots.co.uk/v1/jobs",
+    "register_skill": "https://verdant.codepilots.co.uk/v1/skills",
+    "openapi":        "https://verdant.codepilots.co.uk/openapi.json"
   },
   "sponsors": [
     {
@@ -28,7 +36,7 @@
     {
       "name": "Stripe",
       "role": "payments",
-      "technology": "Managed Payment Platform (MPP)"
+      "technology": "PaymentIntents (verify-then-capture)"
     },
     {
       "name": "Nous Research",
@@ -37,15 +45,16 @@
     }
   ],
   "findability": {
-    "tags": ["tee", "attestation", "agent-marketplace", "peer-to-peer", "mpp-escrow", "wasm-skills"],
-    "categories": ["marketplace", "infrastructure", "security"]
+    "tags": ["tee", "attestation", "sev-snp", "wasm", "agent-broker", "x25519", "chacha20poly1305"],
+    "categories": ["infrastructure", "security", "agents"]
   },
   "contact": {
     "type": "repository",
-    "url": "https://github.com/hermes-agent/verdantforged"
+    "url": "https://verdant.codepilots.co.uk"
   },
   "_meta": {
     "created": "2026-06-19",
+    "updated": "2026-06-30",
     "hackathon": "NVIDIA × Stripe × Nous Research — Hermes Agent Accelerated Business Hackathon",
     "deadline": "2026-06-30"
   }

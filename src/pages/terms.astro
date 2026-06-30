@@ -39,9 +39,9 @@ const lastUpdated = '2026-06-28'; // B5 chargeback/ack handling (t_69b52324)
       </p>
       <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
         Looking for the engineering view? See the
-        <a href="/payment" class="vf-link">Payment pillar deep dive</a>
+        <a href="/payment/" class="vf-link">Payment pillar deep dive</a>
         for the verify-then-capture lifecycle, or the
-        <a href="/agents" class="vf-link">/agents page</a>
+        <a href="/agents/" class="vf-link">/agents page</a>
         for the developer/operator setup.
       </p>
       <div class="mt-8 max-w-2xl vf-card border-copper/40">
@@ -253,8 +253,9 @@ const lastUpdated = '2026-06-28'; // B5 chargeback/ack handling (t_69b52324)
 
         <p class="mt-8 text-body-sm text-ink-soft">
           Full audit and threat model: see
-          <a href="../tee-broker-deploy/SECURITY_REVIEW.md" class="vf-link">SECURITY_REVIEW.md</a>.
-          The worker deletes inputs from S3 immediately after fetching them
+          <a href="/security/" class="vf-link">/security</a>
+          on this site (the public docs track the live broker's protocol fields, payment lifecycle, and attestation checks).
+          The worker deletes inputs from EFS immediately after fetching them
           (see <code class="font-mono text-caption">tee-broker-deploy/worker/poller.py</code>).
           Outputs carry a 24-hour object lifetime policy; presigned download
           URLs have a 15-minute TTL.
@@ -316,12 +317,15 @@ const lastUpdated = '2026-06-28'; // B5 chargeback/ack handling (t_69b52324)
           </p>
           <p class="text-body-sm text-ink-soft mt-4">
             The broker, the demo site, and the protocol spec are open source
-            under the MIT license. See the
-            <a href="https://github.com/hermes-agent/verdantforged" class="vf-link">GitHub repository</a>
-            for source, build instructions, and the full
-            <a href="/THIRD_PARTY_NOTICES.md" class="vf-link">third-party notices</a>.
+            under the MIT license. Source code lives at
+            <code class="font-mono text-caption">tee-broker-deploy/</code>
+            (control plane + worker) and
+            <code class="font-mono text-caption">tee-broker-pattern/</code>
+            (protocol reference). See the
+            <a href="/THIRD_PARTY_NOTICES.md" class="vf-link">third-party notices</a>
+            for the full attribution list.
           </p>
-        </div}
+        </div>
       </div}
 
       <p class="mt-10 max-w-3xl text-caption text-ink-soft font-mono">

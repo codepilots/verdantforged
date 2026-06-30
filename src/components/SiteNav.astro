@@ -21,6 +21,8 @@ interface Props {
     | 'payment-flow'
     | 'docs'
     | 'quickstart'
+    | 'verify-attestation'
+    | 'topology'
     | 'terms';
   /** Optional title shown on the right (e.g. page eyebrow). */
   title?: string;
@@ -37,8 +39,11 @@ const links = [
   { href: `${base}sandboxing/`,      label: 'Sandboxing',    key: 'sandboxing'   },
   { href: `${base}payment/`,         label: 'Payment',       key: 'payment'      },
   { href: `${base}agents/`,          label: 'For agents',    key: 'agents'       },
-  { href: `${base}pricing`,          label: 'Pricing',       key: 'pricing'      },
-  { href: `${base}docs`,             label: 'API',           key: 'docs'         },
+  { href: `${base}quickstart/`,         label: 'Quickstart',     key: 'quickstart'      },
+  { href: `${base}verify-attestation/`, label: 'Verify',         key: 'verify-attestation' },
+  { href: `${base}topology/`,           label: 'Topology',       key: 'topology'        },
+  { href: `${base}pricing/`,            label: 'Pricing',        key: 'pricing'         },
+  { href: `${base}docs/`,               label: 'API',            key: 'docs'            },
 ] as const;
 ---
 

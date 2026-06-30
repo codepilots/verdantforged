@@ -163,7 +163,7 @@ const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
         accepts the request, the worker returns the plaintext
         <code class="font-mono text-copper">output</code> field instead of an
         encrypted blob. Useful for trying the API; never use in production.
-        See <a href="/quickstart" class="vf-link">/quickstart</a> for the full
+        See <a href="/quickstart/" class="vf-link">/quickstart</a> for the full
         X25519 + ChaCha20-Poly1305 path.
       </p>
       <pre class="vf-code mt-6 max-w-prose-vf"><code>{submitCurl}</code></pre>
@@ -202,7 +202,7 @@ const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
         For the full lifecycle (including <code class="font-mono text-copper">failed</code>,
         <code class="font-mono text-copper">timeout</code>, and the
         <code class="font-mono text-copper">awaiting_topup</code> state for
-        underfunded jobs), see the <a href="/payment-flow" class="vf-link">payment flow</a>
+        underfunded jobs), see the <a href="/payment-flow/" class="vf-link">payment flow</a>
         page. The <a href="/docs#get-job" class="vf-link">GET /v1/jobs response shape</a>
         is in the API reference.
       </p>
@@ -224,7 +224,7 @@ const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
       </p>
       <p class="mt-6 text-body text-ink-soft max-w-prose-vf">
         The full working script — generate keypair, submit, poll, decrypt —
-        is in the <a href="/quickstart" class="vf-link">quickstart</a>. The
+        is in the <a href="/quickstart/" class="vf-link">quickstart</a>. The
         gist of the decryption:
       </p>
       <pre class="vf-code mt-6 max-w-prose-vf"><code>{`blob       = base64.b64decode(result["result_encrypted"])
@@ -335,9 +335,11 @@ print(payload["output"])`}</code></pre>
           <p class="text-body-sm text-ink-soft mt-4">
             <code class="font-mono text-copper">STRIPE_SECRET_KEY</code> (live
             mode) · <code class="font-mono text-copper">BROKER_SKILLS_API_KEY</code>
-            (registration) · <code class="font-mono text-copper">LLM_UPSTREAM_*</code>
-            (the real LLM API key, never seen by workers) ·
-            <code class="font-mono text-copper">IDLE_BUFFER_MINUTES</code>.
+            (registration) · <code class="font-mono text-copper">BROKER_LLM_API_KEY</code>,
+            <code class="font-mono text-copper">BROKER_LLM_BASE_URL</code>,
+            <code class="font-mono text-copper">BROKER_LLM_MODEL</code>
+            (the real LLM API key never leaves the control plane) ·
+            <code class="font-mono text-copper">BROKER_IDLE_BUFFER_MINUTES</code>.
             See the deploy README for the full list.
           </p>
         </div>
@@ -356,11 +358,11 @@ print(payload["output"])`}</code></pre>
       </div>
       <p class="mt-8 max-w-2xl text-body-sm text-ink-soft">
         Source code, deploy scripts, and the operator runbook live in the
-        <a
-          href="https://github.com/codepilots/tee-broker-pattern"
-          class="vf-link"
-          rel="noopener"
-        >tee-broker-pattern</a> repository.
+        <code class="font-mono text-copper">tee-broker-deploy/</code>
+        directory (control-plane daemon, worker poller, NemoClaw install,
+        OpenShell policy, Stripe-wiring bootstrap). The Rust protocol
+        reference — kept as a sibling implementation and historical record —
+        lives in <code class="font-mono text-copper">tee-broker-pattern/</code>.
       </p>
     </section>
 
@@ -372,7 +374,7 @@ print(payload["output"])`}</code></pre>
         More for agents and operators.
       </h2>
       <div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
-        <a href="/quickstart" class="vf-card hover:border-copper">
+        <a href="/quickstart/" class="vf-card hover:border-copper">
           <p class="vf-eyebrow text-copper-deep">5-minute walkthrough</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">Quickstart</p>
           <p class="text-body-sm text-ink-soft mt-4">
@@ -380,7 +382,7 @@ print(payload["output"])`}</code></pre>
             working Python, exercised against the live broker.
           </p>
         </a>
-        <a href="/docs" class="vf-card hover:border-copper">
+        <a href="/docs/" class="vf-card hover:border-copper">
           <p class="vf-eyebrow text-copper-deep">Reference</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">API reference</p>
           <p class="text-body-sm text-ink-soft mt-4">
@@ -388,18 +390,16 @@ print(payload["output"])`}</code></pre>
             available for download.
           </p>
         </a>
-        <a
-          href="https://github.com/codepilots/tee-broker-pattern"
-          class="vf-card hover:border-copper"
-          rel="noopener"
-        >
+        <div class="vf-card">
           <p class="vf-eyebrow text-copper-deep">Deploy</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">Source &amp; deploy</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            The Rust control plane, the NemoClaw worker image, the deploy scripts,
-            and the operator runbook. MIT licensed.
+            The Python control plane (broker-daemon + worker poller + NemoClaw
+            install + OpenShell policy + Stripe bootstrap) lives in
+            <code class="font-mono text-copper">tee-broker-deploy/</code>.
+            MIT licensed.
           </p>
-        </a>
+        </div>
       </div>
     </section>
   </main>

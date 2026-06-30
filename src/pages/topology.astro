@@ -1,0 +1,445 @@
+---
+/**
+ * topology.astro — The deployment picture, in one diagram and four sections.
+ *
+ * Audience: a reader who has seen the four pillars and the API reference
+ * but isn't sure where the broker runs, where the worker runs, where
+ * NemoClaw fits, and what "the attested boundary" actually covers.
+ *
+ * This page exists because the terms "the broker," "the worker," "the
+ * NemoClaw instance," and "the enclave" are used interchangeably in
+ * marketing copy, and they're not the same thing. Concretely:
+ *
+ *   - The broker daemon is a Python process on a t3.small, installed as
+ *     a bare systemd service by scripts/bootstrap-control-plane.sh. It
+ *     is NOT running inside NemoClaw.
+ *   - The worker is a separate EC2 instance (m6a.xlarge, AMD SEV-SNP).
+ *     One worker per region by default; scale via warm pool.
+ *   - The NemoClaw *sandbox* (the thing the user means when they say
+ *     "NemoClaw instance") is a process inside the worker EC2, spawned
+ *     by `nemohermes exec` for each LLM skill. It shares the worker's
+ *     SEV-SNP attestation — it is not separately attested.
+ *   - The SEV-SNP attestation covers the whole worker EC2, including
+ *     any NemoClaw sub-sandboxes spawned inside it.
+ *
+ * Source-code references are accurate as of 2026-06-30.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import SiteNav    from '~/components/SiteNav.astro';
+import Footer     from '~/components/Footer.astro';
+
+const diagram = `\
+┌─────────────────────────────────────────────────────────────────────┐
+│ AWS account (eu-west-1)                                             │
+│                                                                     │
+│ ┌────────────────────────┐    ┌─────────────────────────────────┐   │
+│ │ Broker daemon          │    │ Worker EC2 (m6a.xlarge)         │   │
+│ │ Python, always-on      │    │ AMD SEV-SNP + remote attest.    │   │
+│ │ t3.small               │    │                                 │   │
+│ │ systemd service        │    │  ┌────────────────────────────┐ │   │
+│ │ (NOT in NemoClaw)      │    │  │ worker/poller.py           │ │   │
+│ │                        │    │  │                            │ │   │
+│ │  ┌──────────────────┐  │    │  │  runs the skill:           │ │   │
+│ │  │ /v1/discover     │  │    │  │                            │ │   │
+│ │  │ /v1/jobs         │  │◀──▶│  │  WASM ─▶ wasmtime         │ │   │
+│ │  │ /v1/llm proxy ─────────────────▶  or                    │ │   │
+│ │  │ Stripe lifecycle │  │    │  │  LLM ─▶ nemohermes exec ──────▶┌───────────────────────────┐ │
+│ │  └──────────────────┘  │    │  │            │            │ │   │ NemoClaw sandbox         │ │
+│ │                        │    │  │ ───────────│────────────│─┼──▶│ (process inside the      │ │
+│ │  EFS share ◀───────────│────│─▶│ ──── heartbeat ────▶   │ │   │  worker EC2, NOT a new   │ │
+│ │  (envelope, logs,      │    │  └────────────────────────────┘ │   │  instance)              │ │
+│ │   worker keys)         │    │           │              │   │   │                           │ │
+│ └────────────────────────┘    │           │              │   │   │  OpenShell policy:        │ │
+│           │                   │           ▼              ▼   │   │   egress = broker IP only │ │
+│           │                   │  sev_snp.py            S3 KMS│   │                           │ │
+│           ▼                   │  ↓                     ↓     │   │  LLM call ─▶ broker proxy │ │
+│     ┌──────────┐               │  1184-byte SNP report │      │   │           ▲               │ │
+│     │  Stripe  │               │  cert chain           │      │   │           │               │ │
+│     │  Payment │               │  chip_id              │      │   └───────────┼───────────────┘ │
+│     │  Intent  │               │  worker_binding HMAC  │      │               │                 │
+│     └──────────┘               │                       │      │   inherits worker attestation   │
+│                                │ attested ──▶ /v1/discover  │   │ (same enclave, same report)   │
+│                                └─────────────────────────────────┘                           │
+└─────────────────────────────────────────────────────────────────────┘\
+`;
+---
+
+<BaseLayout
+  title="Topology — Where the broker runs, where the worker runs, where NemoClaw fits"
+  description="The deployment picture in one diagram and four sections. The broker daemon is a Python process on a t3.small; the worker is a separate EC2 (m6a.xlarge, AMD SEV-SNP); the NemoClaw instance is a process inside the worker EC2, not a new instance. SEV-SNP attestation covers the whole worker EC2."
+>
+  <SiteNav />
+  <main class="bg-bg text-ink">
+    <!-- Hero -->
+    <section class="vf-container pt-30 pb-16">
+      <p class="vf-eyebrow text-verdigris-deep">Architecture</p>
+      <h1 class="vf-heading-section mt-6 max-w-4xl">
+        Where the broker runs. Where the worker runs. Where NemoClaw fits.
+      </h1>
+      <p class="vf-body-lead mt-8 max-w-3xl">
+        Four things get called "the enclave" in different parts of the
+        docs. They are not the same. This page is the picture, drawn once,
+        with the four sections underneath explaining each layer.
+      </p>
+    </section>
+
+    <!-- The diagram -->
+    <section class="vf-container section-sm" aria-labelledby="diagram-heading">
+      <h2 id="diagram-heading" class="vf-heading-section mt-6 max-w-4xl sr-only">
+        Topology diagram
+      </h2>
+      <pre class="vf-code mt-8 max-w-4xl overflow-x-auto text-caption leading-tight"><code>{diagram}</code></pre>
+    </section>
+
+    <!-- 1. Broker -->
+    <section class="vf-container section" aria-labelledby="broker-heading">
+      <h2 id="broker-heading" class="vf-heading-section mt-6 max-w-4xl">
+        1. The broker — always-on control plane, not in NemoClaw.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The broker is the Python daemon that holds the queue, the Stripe
+        payment lifecycle, the per-job LLM tokens, and the LLM proxy. It is
+        cheap (a <code class="font-mono">t3.small</code> in eu-west-1) and
+        always-on. It is <strong>not</strong> running inside NemoClaw —
+        <code class="font-mono">scripts/bootstrap-control-plane.sh</code>
+        installs it as a bare <code class="font-mono">systemd</code> service
+        on the host. NemoClaw only appears at the worker side (see
+        <a href="#nemoclaw-heading" class="vf-link">section 3</a>).
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        It exposes the public API:
+      </p>
+      <ul class="text-body mt-6 max-w-3xl space-y-2 list-disc pl-6">
+        <li><code class="font-mono text-copper">GET  /v1/discover</code> — attestation block, pricing, supported skills</li>
+        <li><code class="font-mono text-copper">POST /v1/jobs</code> — submit a job (encrypted payload + Stripe PI)</li>
+        <li><code class="font-mono text-copper">GET  /v1/jobs/&#123;id&#125;</code> — poll; once completed, returns encrypted result + signatures</li>
+        <li><code class="font-mono text-copper">POST /v1/llm/chat/completions</code> — the LLM proxy used by worker sandboxes</li>
+      </ul>
+    </section>
+
+    <!-- 2. Worker -->
+    <section class="vf-container section" aria-labelledby="worker-heading">
+      <h2 id="worker-heading" class="vf-heading-section mt-6 max-w-4xl">
+        2. The worker — separate EC2, AMD SEV-SNP, launched on demand.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The worker is a separate EC2 instance (<code class="font-mono">m6a.xlarge</code>,
+        AMD SEV-SNP enabled) that runs the actual workload. The broker
+        launches it on demand via <code class="font-mono">scripts/warm-worker-manager.sh</code>
+        and holds it in a warm pool so jobs don't pay the ~16-minute
+        cold-start cost on every submission.
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        One worker = one SEV-SNP attestation report. The report covers
+        the entire EC2: kernel, init system, poller process, every child
+        process, and any NemoClaw sandbox spawned inside it. This is the
+        single hardware-attested boundary. <strong>If you want to know
+        what's running, the worker's attestation report is what you
+        verify.</strong>
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The worker has two execution paths:
+      </p>
+      <ul class="text-body mt-6 max-w-3xl space-y-2 list-disc pl-6">
+        <li>
+          <strong>WASM skill:</strong> runs directly on the worker host
+          via <code class="font-mono">wasmtime</code> with manifest-declared
+          fuel + duration caps. No sandbox layer — the wasmtime engine is
+          the sandbox.
+        </li>
+        <li>
+          <strong>LLM skill:</strong> runs inside a NemoClaw sandbox
+          spawned by <code class="font-mono">nemohermes exec</code>
+          (<code class="font-mono">worker/poller.py:1028 dispatch_to_sandbox</code>).
+          The LLM call inside the sandbox is intercepted by the
+          OpenShell policy and forwarded to the broker's LLM proxy over
+          HTTP — the real LLM API key never enters the worker.
+        </li>
+      </ul>
+    </section>
+
+    <!-- 3. NemoClaw -->
+    <section class="vf-container section" aria-labelledby="nemoclaw-heading">
+      <h2 id="nemoclaw-heading" class="vf-heading-section mt-6 max-w-4xl">
+        3. The NemoClaw sandbox — process inside the worker, not a new instance.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        This is the part that confused you (and a lot of reviewers). When
+        the marketing copy says "the NemoClaw instance," it usually means
+        <strong>one NemoClaw sandbox</strong> — a child process inside the
+        worker EC2, started by <code class="font-mono">nemohermes exec</code>
+        when the worker dispatches an LLM skill. It is not a new EC2, not
+        a new VM, not a new hardware attestation boundary. It is one
+        process running under an OpenShell policy, inside the attested
+        worker.
+      </p>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        One NemoClaw sandbox per LLM job. The sandbox:
+      </p>
+      <ul class="text-body mt-6 max-w-3xl space-y-2 list-disc pl-6">
+        <li>Inherits the worker EC2's SEV-SNP attestation (same enclave, same report).</li>
+        <li>Has its own <code class="font-mono">inference.local</code> OpenShell policy that blocks all egress except to the broker's LLM proxy IP.</li>
+        <li>Receives a per-job <code class="font-mono">llm_token</code> as its <code class="font-mono">COMPATIBLE_API_KEY</code> (10-min TTL, one-shot).</li>
+        <li>Runs the skill's <code class="font-mono">prompt_template</code> with the decrypted input data.</li>
+        <li>Has its own wall-clock cap (<code class="font-mono">WORKER_SANDBOX_INNER_TIMEOUT_S=120</code>) and dispatch timeout (<code class="font-mono">WORKER_SANDBOX_DISPATCH_TIMEOUT_S=180</code>).</li>
+      </ul>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        If the NemoClaw installer is missing on the worker (which happens
+        on fresh AMIs before the bootstrap runs), the worker falls back
+        to a legacy host-direct LLM call to the broker proxy. Same
+        network policy enforced by OpenShell once installed; looser
+        (kernel-level) before installation.
+      </p>
+
+      <div class="mt-10 vf-card border-copper/40 max-w-3xl">
+        <p class="vf-eyebrow text-copper-deep">What the current sandbox attestation looks like</p>
+        <p class="vf-body-lead mt-4">
+          Today, the result envelope includes a <code class="font-mono">sandbox</code> block
+          (see <code class="font-mono">worker/poller.py:2611</code>) with
+          four fields:
+        </p>
+        <pre class="vf-code mt-4 max-w-prose-vf"><code>{`{
+  "name":               "<sandbox name from nemohermes>",
+  "attested":           true | false,
+  "network_policy":     "openshell-enforced",
+  "inference_route":    "inference.local -> broker proxy http://<ip>:8080/v1/llm",
+  "error":              "<only present if attested=false>"
+}`}</code></pre>
+        <p class="vf-body-lead mt-4">
+          This proves the sandbox ran with the right egress policy, but it
+          does <strong>not</strong> pin the NemoClaw version, the sandbox
+          image hash, or sign anything. A reviewer can verify the network
+          surface but cannot verify which version of NemoClaw actually ran.
+        </p>
+      </div>
+
+      <div class="mt-8 vf-card border-verdigris/40 max-w-3xl">
+        <p class="vf-eyebrow text-verdigris-deep">Shipping now — worker signs the NemoClaw image digest (Plan 2)</p>
+        <p class="vf-body-lead mt-4">
+          Worker-side change: after <code class="font-mono">nemohermes onboard</code>,
+          the worker captures <code class="font-mono">nemoclaw_version</code>,
+          the Docker image name, and the image digest. It signs the bundle
+          with its Ed25519 key (already bound to the SEV-SNP report via
+          <code class="font-mono">worker_binding</code>) and includes the
+          signature in the result envelope. Reviewer-side check is the new
+          <a href="/verify-attestation/#step-6" class="vf-link">Step 6 of /verify-attestation</a>.
+        </p>
+        <pre class="vf-code mt-4 max-w-prose-vf"><code>{`{
+  "name":                "<sandbox name from nemohermes>",
+  "attested":            true | false,
+  "network_policy":      "openshell-enforced",
+  "inference_route":     "inference.local -> broker proxy http://<ip>:8080/v1/llm",
+  "nemoclaw_version":    "0.7.2",
+  "nemoclaw_image":      "nemoclaw/nemoclaw:0.7.2",
+  "nemoclaw_image_digest": "sha256:abc123...",
+  "image_digest_sig":    "<worker Ed25519 sig over (version|digest|name|pubkey|report_data[:128])>",
+  "error":               "<only present if attested=false>"
+}`}</code></pre>
+        <p class="vf-body-lead mt-4">
+          The signature is verifiable end-to-end. Walking the chain:
+        </p>
+        <pre class="vf-code mt-2 max-w-prose-vf"><code>{`image_digest_sig
+  → worker Ed25519 key  (published in worker-keys.json)
+    → worker X25519 pubkey  (also in worker-keys.json)
+      → worker_binding HMAC  (in report_data, signed by AMD chip)
+        → SEV-SNP report  (signed by AMD chip)
+          → VLEK/VCEK cert chain
+            → AMD ARK root  (pinned in verifier environment)`}</code></pre>
+        <p class="vf-body-lead mt-4">
+          What this catches: worker pulling a different NemoClaw image than
+          the requester expected; MITM on the nemohermes download. What it
+          does not catch: operator shipping a custom NemoClaw build and
+          calling it "v0.7.2." That residual trust is unavoidable until
+          NemoClaw ships a signed image manifest.
+        </p>
+      </div>
+
+      <div class="mt-8 vf-card border-bg/40 max-w-3xl">
+        <p class="vf-eyebrow text-bg-soft">Future work — Option 2: bake NemoClaw into the AMI</p>
+        <p class="vf-body-lead mt-4">
+          Today, <code class="font-mono">nemohermes</code> downloads the
+          NemoClaw Docker image at runtime from NVIDIA's CDN. The image
+          lands in the worker's filesystem <strong>after</strong> the
+          SEV-SNP launch measurement is taken, so the chip never sees it.
+          The worker-side signing in "Shipping now" above catches the
+          worker pulling a different image, but doesn't hardware-attest
+          the image itself.
+        </p>
+        <p class="vf-body-lead mt-4">
+          To hardware-attest the image, the operator would:
+        </p>
+        <ol class="text-body mt-2 max-w-prose-vf space-y-2 list-decimal pl-6">
+          <li>
+            Modify the AMI build pipeline (Packer) to download the
+            NemoClaw Docker image at AMI build time, extract it into
+            <code class="font-mono">/var/lib/docker</code> (so it's part of
+            the AMI's filesystem, not a runtime fetch), and capture the
+            resulting image digest.
+          </li>
+          <li>
+            Publish a <code class="font-mono">min_measurement</code> table
+            per (NemoClaw version, AMI id) the same way the existing
+            <code class="font-mono">min_measurement</code> is published.
+          </li>
+          <li>
+            The requester compares the published
+            <code class="font-mono">min_measurement</code> against the
+            chip's report for any live worker. The SEV-SNP signature on
+            the report <em>is</em> the signature on the AMI, including
+            the embedded NemoClaw image.
+          </li>
+        </ol>
+        <p class="vf-body-lead mt-4">
+          <strong>Trade-offs:</strong> larger AMIs (NemoClaw image is
+          ~1–2 GB baked in), AMI rebuilds every NemoClaw version bump,
+          and reproducible AMI builds are hard (NemoClaw is a moving
+          target). But it eliminates the ~16-min cold start, closes the
+          runtime-fetch trust gap, and gives hardware-attested version
+          pinning — no more trusting the operator's
+          <code class="font-mono">worker-keys.json</code> claims.
+        </p>
+        <p class="vf-body-lead mt-4">
+          This is out of scope for the current deploy (it requires an
+          operator-side AMI build change and a NemoClaw build-step
+          cooperation). Plan 1 (Shipping now) is the right answer for
+          the current threat model; Option 2 is the right answer for a
+          deployment where the operator wants hardware-attested version
+          pinning.
+        </p>
+      </div>
+    </section>
+
+    <!-- 4. What's the attested boundary? -->
+    <section class="vf-container section" aria-labelledby="boundary-heading">
+      <h2 id="boundary-heading" class="vf-heading-section mt-6 max-w-4xl">
+        4. The attested boundary — what the SEV-SNP report covers.
+      </h2>
+      <p class="vf-body-lead mt-6 max-w-3xl">
+        The single attestation report at <code class="font-mono">/v1/discover</code>
+        covers the whole worker EC2. Concretely:
+      </p>
+      <div class="overflow-x-auto mt-8">
+        <table class="vf-table max-w-4xl">
+          <thead>
+            <tr>
+              <th class="text-left">Layer</th>
+              <th class="text-left">In the attestation report?</th>
+              <th class="text-left">What stops it from being tampered with</th>
+            </tr>
+          </thead>
+          <tbody class="text-body-sm">
+            <tr>
+              <td>Worker EC2 kernel + init</td>
+              <td>Yes (part of <code class="font-mono">measurement</code>)</td>
+              <td>SEV-SNP memory encryption + AMD chip signature</td>
+            </tr>
+            <tr>
+              <td><code class="font-mono">worker/poller.py</code></td>
+              <td>Yes (part of <code class="font-mono">measurement</code>)</td>
+              <td>Same</td>
+            </tr>
+            <tr>
+              <td><code class="font-mono">wasmtime</code> + WASM skill</td>
+              <td>Yes (part of <code class="font-mono">measurement</code>)</td>
+              <td>Same</td>
+            </tr>
+            <tr>
+              <td>NemoClaw sandbox (LLM skill)</td>
+              <td>Yes (process inside the attested enclave)</td>
+              <td>SEV-SNP memory isolation; OpenShell policy blocks egress</td>
+            </tr>
+            <tr>
+              <td>OpenShell policy file</td>
+              <td>Indirectly (its SHA-256 is in <code class="font-mono">policy_hash</code>, bound via <code class="font-mono">worker_binding</code>)</td>
+              <td>If the policy changes, the binding HMAC changes, the report becomes invalid</td>
+            </tr>
+            <tr>
+              <td>Worker X25519 keypair</td>
+              <td>Indirectly (the pubkey is in <code class="font-mono">report_data</code>, HMAC-bound to policy_hash)</td>
+              <td>Same — key swap breaks the binding</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="vf-body-lead mt-8 max-w-3xl">
+        So when you read <code class="font-mono">/v1/discover</code> and
+        verify the five checks on <a href="/verify-attestation/" class="vf-link">/verify-attestation</a>,
+        you are verifying <strong>everything that runs in the worker</strong>:
+        the WASM engine, the poller, the NemoClaw sandbox process, and
+        the OpenShell policy that constrains it. There is no separate
+        attestation for "the NemoClaw instance" because there is no
+        separate instance — it's a process inside the attested EC2.
+      </p>
+    </section>
+
+    <!-- Key takeaways -->
+    <section class="vf-container section" aria-labelledby="takeaways-heading">
+      <h2 id="takeaways-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Key takeaways.
+      </h2>
+      <ul class="text-body mt-6 max-w-3xl space-y-3 list-disc pl-6">
+        <li>
+          <strong>EC2 count:</strong> 1 broker (always on) + 1+ workers (warm pool).
+          Not "1 AWS instance running multiple NemoClaw instances."
+        </li>
+        <li>
+          <strong>NemoClaw appears in two places:</strong> the broker
+          control-plane sandbox (deployment-time) and the per-LLM-job
+          sandbox inside the worker (execution-time). They share a name,
+          not a process boundary.
+        </li>
+        <li>
+          <strong>One attestation report covers one worker EC2.</strong>
+          The report doesn't enumerate child processes — it attests the
+          initial VM memory contents, and everything that runs inside
+          inherits that trust.
+        </li>
+        <li>
+          <strong>"NemoClaw instance" = NemoClaw sandbox process</strong>
+          inside the worker. One per LLM job, terminated when the job
+          ends, no separate hardware boundary.
+        </li>
+        <li>
+          <strong>Network policy is what isolates NemoClaw from the
+          outside world</strong> — OpenShell default-DENY + a strict
+          allowlist of broker IPs. The SEV-SNP attestation is what binds
+          that policy to the running worker (via <code class="font-mono">worker_binding</code>).
+        </li>
+      </ul>
+    </section>
+
+    <!-- Where to go next -->
+    <section class="vf-container section-sm" aria-labelledby="next-heading">
+      <h2 id="next-heading" class="vf-heading-section mt-6 max-w-4xl">
+        Where to go from here.
+      </h2>
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+        <a href="/verify-attestation/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Now that you have the picture</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Verify the attestation</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            Five concrete checks against <code class="font-mono text-caption">GET /v1/discover</code> — decode the 1184-byte report, walk the cert chain to AMD's ARK, verify the worker_binding HMAC.
+          </p>
+        </a>
+        <a href="/attestation/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Background</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">What is attestation?</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            The pillar deep dive — the three-step handshake, the
+            attack/defense matrix, and what each check actually proves.
+          </p>
+        </a>
+        <a href="/agents/" class="vf-card hover:border-copper">
+          <p class="vf-eyebrow text-copper-deep">Operator setup</p>
+          <p class="font-display font-semibold text-ink mt-3 text-display-sm">Run your own broker</p>
+          <p class="text-body-sm text-ink-soft mt-4">
+            <code class="font-mono text-caption">bootstrap-control-plane.sh</code>,
+            <code class="font-mono text-caption">warm-worker-manager.sh</code>,
+            the OpenShell policy file, the Stripe wiring.
+          </p>
+        </a>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

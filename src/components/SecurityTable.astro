@@ -3,68 +3,83 @@
  * SecurityTable — the deep-dive on the security pillar.
  *
  * The Pillars section above gives the 30-second view. This table is the
- * full attack/defense matrix, grounded in the SECURITY_AUDIT.md. The
- * audience: a reviewer who wants the cryptographic primitives and the
- * specific test names, not just the marketing version.
+ * full attack/defense matrix, grounded in what the live broker actually
+ * does (broker-daemon/daemon.py + worker/poller.py).
+ *
+ * Source-of-truth files:
+ *   - broker-daemon/crypto.py, daemon.py (attestation, signature, sign)
+ *   - worker/poller.py L48: FILE_ENCRYPTION = "x25519-hkdf-sha256-chacha20poly1305-v1"
+ *   - worker/poller.py L47: INPUT_AAD = b"verdantforged-input"
+ *   - broker-daemon/daemon.py validate_submit (L2091)
+ *   - broker-daemon/daemon.py _verify_snp_quote_signature (L2200)
+ *
+ * Audience: a reviewer who wants the cryptographic primitives and the
+ * specific protocol field names, not just the marketing version.
  */
 
 const primitives = [
   {
     layer: 'Key exchange',
-    algorithm: 'X25519 ECDH, ephemeral',
-    why: 'Forward secrecy per execution — compromising one long-term key does not decrypt past traffic',
-    test: 'test_ecies_roundtrip, test_wrong_key_fails, test_same_plaintext_different_ciphertexts',
-  },
-  {
-    layer: 'AEAD',
-    algorithm: 'AES-256-GCM',
-    why: 'Confidentiality + integrity in one primitive; ciphertext is self-authenticating',
-    test: 'test_aes_gcm_tamper_detection, test_nonce_uniqueness',
+    algorithm: 'X25519 ECDH, ephemeral-static per envelope',
+    why: 'A fresh ephemeral keypair per envelope gives forward secrecy; the worker static X25519 key is published in /v1/discover.attestation.enclave_pubkey so requesters encrypt without extra ceremony',
+    test: 'tests/verify-crypto-e2e.py + tests/verify-ephemeral-static-ecdh.py — roundtrip, wrong-key fails, distinct ciphertexts per envelope',
   },
   {
     layer: 'KDF',
-    algorithm: 'HKDF-SHA256 with context binding',
-    why: 'Context string separates skill / data / result keys — no key reuse across channels',
-    test: 'test_wrong_context_fails, test_hkdf_rfc5869_vector',
+    algorithm: 'HKDF-SHA256, context-bound (verdantforged-input / verdantforged-result / verdantforged-artifact)',
+    why: 'AAD-bound shared-secret derivation prevents a blob spliced from one channel (input vs artifact vs result) from decrypting in another',
+    test: 'tests/verify-crypto-e2e.py — wrong-context fails, HKDF RFC 5869 vector',
   },
   {
-    layer: 'Manifest signature',
-    algorithm: 'Ed25519 (RFC 8032)',
-    why: 'Compact (64-byte) signatures, constant-time verification, manifest hash excludes signature (no self-reference)',
-    test: 'test_manifest_signature_roundtrip, test_tampered_manifest_fails',
+    layer: 'AEAD',
+    algorithm: 'ChaCha20-Poly1305 (IETF, 12-byte nonce, 16-byte tag)',
+    why: 'Confidentiality + integrity in one primitive; wire format is ephemeral_pubkey || nonce || ciphertext||tag (60-byte overhead)',
+    test: 'tests/verify-crypto-e2e.py — tamper detection on every byte position, nonce-uniqueness per envelope',
   },
   {
-    layer: 'Ed25519 → X25519',
-    algorithm: 'curve25519_dalek birational map',
-    why: 'One-way conversion: requester\'s Ed25519 verify key becomes the result-encryption pubkey, no extra key material',
-    test: 'test_ed25519_to_x25519_conversion_produces_32_bytes',
+    layer: 'Worker identity',
+    algorithm: 'Ed25519 (RFC 8032), persistent per host',
+    why: 'Worker signs the result envelope; key persisted at /opt/worker/keys so two jobs from the same worker share a verifiable identity (VULN-S4: not derived from SEV-SNP — see _ensure_worker_signing_key)',
+    test: 'tests/verify-security-fixes.py — roundtrip, tampered result rejected, missing signature rejected',
+  },
+  {
+    layer: 'Broker non-repudiation',
+    algorithm: 'Ed25519 (RFC 8032), per broker instance',
+    why: 'Broker independently signs the canonical (result_hash|skill_hash|input_hash) tuple in _finalize_job. Workers do not learn the broker key; verifiers with the broker pubkey can prove the receipt passed through THIS broker',
+    test: 'tests/verify-webhook-delivery.py + verify-stripe-integration.py — broker_signature present on completed, capture/refund flow proved end-to-end',
+  },
+  {
+    layer: 'Attestation quote signature',
+    algorithm: 'RSA-PSS via `_verify_snp_quote_signature()`',
+    why: 'Verifies the 1184-byte SNP quote with its embedded VCEK/VLEK cert against the supplied cert_chain. Clients re-verify against the AMD root before trusting the measurement',
+    test: 'tests/verify-attestation-audit.py + verify-sev-snp-framework.py — 1184-byte length check, cert chain presence, rsa-pss accepts good / rejects tampered',
   },
   {
     layer: 'Hash',
-    algorithm: 'SHA-256',
-    why: 'NIST standard; verified against the canonical "abc" test vector at startup',
-    test: 'test_sha256_known_vector',
+    algorithm: 'SHA-256 / SHA-384 (measurement), sha256(skill_hash) for WASM dispatch',
+    why: 'NIST standard; crypto.hash_field() recomputes sha256(encrypted_skill) at submit time so the broker can bind the envelope hash',
+    test: 'tests/verify-crypto-e2e.py — known "abc" vector for SHA-256, RFC test vector for HKDF',
   },
 ];
 
 const requestValidation = [
-  { check: 'skill_encrypted not empty',     detail: 'Rejects empty payload (replay/sanity)' },
-  { check: 'data_encrypted not empty',      detail: 'Rejects empty payload (replay/sanity)' },
-  { check: 'max_fuel > 0',                  detail: 'No infinite-fuel requests' },
-  { check: 'max_fuel ≤ 100M',               detail: 'Caps DoS surface' },
-  { check: 'max_duration_ms > 0',           detail: 'No infinite-lifetime requests' },
-  { check: 'max_duration_ms ≤ 120s',        detail: 'Caps DoS surface' },
-  { check: 'mpp_escrow_id not empty',       detail: 'No unescrowed execution' },
-  { check: 'Payload size ≤ 10 MB',          detail: 'Caps bandwidth per execution' },
+  { check: 'encrypted_skill present',         detail: 'Rejects empty payload (replay/sanity)' },
+  { check: 'encrypted_data present',          detail: 'Rejects empty payload (replay/sanity)' },
+  { check: 'requester_sig present',           detail: 'Ed25519 signature over the canonical envelope; optional pubkey for opt-in verification' },
+  { check: 'result_pubkey well-formed',       detail: '32-byte base64 X25519 pubkey; file jobs require it (code: file_encryption_required)' },
+  { check: 'stripe_pi_id format-valid',      detail: 'Pattern pi_<base62> (Stripe PaymentIntent ID format)' },
+  { check: 'encrypt_input capability check',  detail: 'Registered skills with decrypt_input=true are honored; unknown skills never get the decrypt path' },
+  { check: 'wasm_uri optional',              detail: 'If set, broker resolves + verifies skill_hash from the registered skills table before injecting' },
+  { check: 'Input files (optional)',         detail: 'Filename allowlist, ≤50 MB per file, ≤10 files, requires valid X25519 result_pubkey' },
 ];
 
 const attestationChecks = [
-  { check: 'Non-empty attestation',          detail: 'test_empty_attestation_fails' },
-  { check: 'Cert chain → AMD/Intel root',   detail: 'test_invalid_cert_chain_fails' },
-  { check: 'Measurement matches expected',  detail: 'test_measurement_mismatch_fails' },
-  { check: 'TCB version ≥ minimum',         detail: 'test_tcb_version_too_old_fails' },
-  { check: 'Policy hash matches',           detail: 'test_policy_hash_mismatch_fails' },
-  { check: 'Serialization roundtrip',       detail: 'test_attestation_serialization_roundtrip' },
+  { check: 'Non-empty SNP report (1184 bytes)',  detail: 'verify-attestation-audit.py — empty_attestation_fails' },
+  { check: 'Cert chain present + well-formed',    detail: 'verify-attestation-audit.py — invalid_cert_chain_fails' },
+  { check: 'RSA-PSS signature verifies',          detail: 'verify-attestation-audit.py + verify-sev-snp-framework.py — tampered_signature_rejected, quote_signature_roundtrip' },
+  { check: 'Measurement matches expected',       detail: 'Loaded into worker.attestation; advertised in /v1/discover for client-side compare' },
+  { check: 'report_data bound to worker key',     detail: '_load_verified_worker_identity — HMAC(binding) === sha256(worker_keys.x25519_pubkey) embedded in report_data' },
+  { check: 'Worker Ed25519 attestation key',      detail: 'Persistent per host (VULN-S4); per-job eph_x25519 used for the input channel' },
 ];
 ---
 
@@ -80,11 +95,15 @@ const attestationChecks = [
   <p class="vf-body-lead mt-8 max-w-2xl">
     The pillars section gives the 30-second pitch. This is the receipt: the
     crypto stack, the input validation, the attestation checks — and the
-    specific test name that proves each one. The full audit document is
+    specific test name that proves each one. The full source of truth is
     <a
-      href="https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md"
+      href="/docs"
       class="vf-link"
-    >SECURITY_AUDIT.md</a>.
+    >/docs</a> on the live broker and the
+    <a
+      href="/security/"
+      class="vf-link"
+    >/security</a> deep dive.
   </p>
 
   <!-- Cryptographic primitives -->
@@ -171,14 +190,18 @@ const attestationChecks = [
   <!-- Footer -->
   <div class="mt-20 max-w-2xl mx-auto text-center">
     <p class="vf-body-lead">
-      51/51 tests pass. Zero clippy warnings. Zero clippy errors. Two
-      <code class="font-mono text-copper-deep">unsafe</code> blocks, both
-      correctly annotated for the WASM FFI surface.
+      The full live-broker test suite runs against the broker at
+      <code class="font-mono text-copper-deep">verdant.codepilots.co.uk</code>
+      — 30+ verify-*.py scripts under
+      <code class="font-mono text-copper-deep">tee-broker-deploy/tests/</code>
+      covering crypto, attestation, dispatch, WASM, payment, and webhook delivery.
     </p>
     <p class="mt-6 text-caption text-ink-soft font-mono">
-      The submission simulates the WASM execution, the MPP release, and
-      the SEV-SNP attestation (mock provider). The protocol, the crypto,
-      and the test suite are real.
+      The crypto, the broker, the worker, and the test suite are real.
+      Simulated: only the WASM binaries shipped in
+      <code class="font-mono text-copper-deep">skill_library/</code>
+      that have no on-disk binary yet. Real binaries are uploaded via
+      <code class="font-mono text-copper-deep">/v1/skills</code> and execute against the live broker.
     </p>
   </div>
 </section>

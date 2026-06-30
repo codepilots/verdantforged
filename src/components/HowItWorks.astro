@@ -44,7 +44,7 @@ const steps = [
     n: '04',
     title: 'Enclave execution',
     sub: 'Attested m6a.xlarge, SEV-SNP',
-    body: 'The worker (an m6a.xlarge EC2 with SEV-SNP memory encryption + remote attestation) decrypts inside the attested VM, re-verifies skill_hash against the on-disk WASM binary, then runs via wasmtime with manifest-declared max_fuel and max_duration_ms — or calls the LLM through the broker proxy with a per-job token. Worker signs the result; the broker re-signs it independently.',
+    body: 'The worker (an m6a.xlarge EC2 with SEV-SNP memory encryption + remote attestation) decrypts inside the attested VM and re-verifies skill_hash against the on-disk WASM binary. Execution dispatches by skill kind: registered WASM skills run via wasmtime with manifest-declared max_fuel / max_duration_ms; prompt-template skills run inside the NemoClaw sandbox (nemohermes exec) with LLM calls routed through the broker proxy via OpenShell; built-in stubs run on the host. Worker signs the result with Ed25519; the broker re-signs it independently.',
     diagram: 'execute',
   },
   {

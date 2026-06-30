@@ -128,8 +128,8 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
 #    "status_url": "/v1/jobs/job_...", "job_access_token": "jobtok_...",
 #    "idempotent_replay": false}
 
-# 2. Poll (auth with the job_access_token)
-curl -sS -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_...
+# 2. Poll (auth with the job_access_token returned in step 1).
+curl -sS -H "Authorization: Bearer jobtok_..." "${brokerBase}/v1/jobs/job_..."
 
 # 3. Read the plaintext output (demo mode keeps it in result.output).
 #    Production output is encrypted — use the Python quickstart.
@@ -154,9 +154,9 @@ curl -sS -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_...
       </p>
       <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
         For the full endpoint catalog, see the
-        <a href="/docs" class="vf-link">API reference</a>. Looking to set up
+        <a href="/docs/" class="vf-link">API reference</a>. Looking to set up
         a broker or wire an agent? Skip to
-        <a href="/agents" class="vf-link">/agents</a>.
+        <a href="/agents/" class="vf-link">/agents</a>.
       </p>
     </section>
 
@@ -321,7 +321,7 @@ STRIPE_PI_ID=pi_demo_0001 \\
       <p class="vf-eyebrow">Next steps</p>
       <h2 id="next-heading" class="vf-heading-section mt-6 max-w-4xl">Where to go from here.</h2>
       <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
-        <a href="/docs" class="vf-card hover:border-copper">
+        <a href="/docs/" class="vf-card hover:border-copper">
           <p class="vf-eyebrow text-copper-deep">Read</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">API reference</p>
           <p class="text-body-sm text-ink-soft mt-4">

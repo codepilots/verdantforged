@@ -185,7 +185,7 @@ const endpoints: Array<{
   ],
   "primary": { /* same shape, always the first file */ }
 `,
-    curl: `curl -sS -H 'Authorization: Bearer *** ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
+    curl: `curl -sS -H 'Authorization: Bearer <job_access_token> ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
     errors: [
       { status: '404', body: `{"error": "no artifacts"}` },
     ],
@@ -321,7 +321,7 @@ Location: /v1/skills/my-skill@0.1.0
   "llm_tokens_used": 229,
   "llm_calls":       1
 }`,
-    curl: `curl -sS -H 'Authorization: ...rBase}/v1/llm/usage/job_5f9e3a...`,
+    curl: `curl -sS -H 'Authorization: Bearer <llm_token>' ${brokerBase}/v1/llm/usage/job_5f9e3a...`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
     ],
@@ -338,7 +338,7 @@ Location: /v1/skills/my-skill@0.1.0
   "state":  "queued",
   "message": "inputs verified, job queued"
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer ...brokerBase}/v1/jobs/job_5f9e3a.../ready`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../ready`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
       { status: '409', body: `{"error": "job is in state queued, not awaiting_inputs", "code": "wrong_state"}` },
@@ -359,7 +359,7 @@ Location: /v1/skills/my-skill@0.1.0
   "status":  "succeeded",
   "message": "topup captured, result released"
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer ...rBase}/v1/jobs/job_5f9e3a.../topup -d '{"stripe_pi_id": "pi_topup_xxx"}'`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../topup -d '{"stripe_pi_id": "pi_topup_xxx"}'`,
     errors: [
       { status: '400', body: `{"error": "invalid stripe_pi_id format"}` },
       { status: '404', body: `{"error": "not found"}` },
@@ -380,7 +380,7 @@ Location: /v1/skills/my-skill@0.1.0
   "acked_at":   "2026-06-28T07:05:00+00:00",
   "ack_proof": "I received and verified the output."
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer ...rBase}/v1/jobs/job_5f9e3a.../ack -d '{"proof": "Received."}'`,
+    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../ack -d '{"proof": "Received."}'`,
     errors: [
       { status: '400', body: `{"error": "body must include non-empty 'proof' string", "code": "proof_required"}` },
       { status: '404', body: `{"error": "job not found", "code": "not_found"}` },
@@ -443,10 +443,10 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
       </p>
       <p class="mt-6 text-body-sm text-ink-soft max-w-2xl">
         New here? Start with the
-        <a href="/quickstart" class="vf-link">5-minute quickstart</a>
+        <a href="/quickstart/" class="vf-link">5-minute quickstart</a>
         — submit a job, decrypt a result. Looking to set up a broker or
         wire an agent? Skip to
-        <a href="/agents" class="vf-link">/agents</a>.
+        <a href="/agents/" class="vf-link">/agents</a>.
       </p>
       <div class="mt-8 flex flex-wrap gap-3">
         <a href="/openapi.json" class="vf-button-ghost text-body-sm" download>
@@ -478,7 +478,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
           <p class="vf-eyebrow text-verdigris-deep">Per-job</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">job_access_token</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;jo...en&gt;</code>.
+            <code class="font-mono text-copper">Authorization: Bearer &lt;job_access_token&gt;</code>.
             Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
             Required for job-scoped endpoints: status polling, artifacts, topup, ack, ready.
           </p>
@@ -487,7 +487,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
           <p class="vf-eyebrow text-verdigris-deep">Per-job (internal)</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">llm_token</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;ll...de&gt;</code>.
+            <code class="font-mono text-copper">Authorization: Bearer &lt;llm_token&gt;</code>.
             10-min TTL. Passed to the worker via EFS envelope (never returned to the client).
             Workers use this for the LLM proxy. Per-job budget cap (50k tokens/day/account).
           </p>
@@ -496,7 +496,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
           <p class="vf-eyebrow text-verdigris-deep">Server-side</p>
           <p class="font-display font-semibold text-ink mt-3 text-display-sm">BROKER_SKILLS_API_KEY</p>
           <p class="text-body-sm text-ink-soft mt-4">
-            <code class="font-mono text-copper">Authorization: Bearer &lt;BR...de&gt;</code>.
+            <code class="font-mono text-copper">Authorization: Bearer &lt;BROKER_SKILLS_API_KEY&gt;</code>.
             Operator-configured. Used only by
             <code class="font-mono text-copper">POST /v1/skills</code> and
             <code class="font-mono text-copper">POST /v1/skills/&#123;name&#125;/wasm</code>.

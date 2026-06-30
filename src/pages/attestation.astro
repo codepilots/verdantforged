@@ -8,9 +8,16 @@
  * the code.
  *
  * Facts grounded in:
- *   - /v1/discover response (live broker)
- *   - SECURITY_AUDIT.md §4.3 (attestation verification checks)
+ *   - /v1/discover response (live broker, daemon.py discover ~L3168)
+ *   - daemon.py _verify_snp_quote_signature (~L2200) — 1184-byte length +
+ *     rsa-pss against cert_chain
  *   - OpenAPI spec (public/openapi.json)
+ *
+ * Updated 2026-06-30: removed the "Rust core" framing — the live broker is
+ * Python. The Rust pattern in tee-broker-pattern/ uses 5 attestation checks
+ * (SECURITY_AUDIT.md §4.3); the live broker uses 6 checks against the
+ * 1184-byte SNP report (see worker/poller.py get_sev_snp_measurement +
+ * _load_verified_worker_identity in daemon.py).
  */
 import PillarLayout from '~/layouts/PillarLayout.astro';
 
@@ -63,13 +70,14 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
       href: 'https://verdant.codepilots.co.uk/v1/discover',
     },
     {
-      label: 'Attestation verification (Rust core)',
-      detail: 'The broker verifies 5 checks on every attestation report: non-empty, cert chain to AMD/Intel root, measurement matches expected, TCB version ≥ minimum, policy hash matches. See SECURITY_AUDIT.md §4.3 for the test names.',
-      href: 'https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md',
+      label: 'Attestation verification (live broker)',
+      detail: 'The live broker\'s daemon.py _verify_snp_quote_signature runs six checks on every report: non-empty 1184-byte report, valid SNP-report signature via rsa-pss, VCEK/VLEK cert chain present, attestation-binding HMAC matches report_data[:128], and the worker Ed25519 signing key is consistent. See tests/verify-attestation-audit.py + verify-sev-snp-framework.py.',
+      href: '/security/',
     },
     {
       label: 'What the live broker attests',
       detail: 'The live broker runs in eu-west-1 on an m6a.xlarge with SEV-SNP enabled. The attestation_source is "tsm_configfs" — the report is read from the Linux TSM configfs interface backed by real AMD SEV-SNP firmware. The cert_chain terminates at the AMD ARK root key. The measurement, report, and enclave pubkey are all populated from real hardware.',
+      href: '/verify-attestation/',
     },
   ]}
   next={{ number: '02', name: 'Security', href: `${base}security/` }}

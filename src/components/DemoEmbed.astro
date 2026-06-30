@@ -18,8 +18,8 @@ const castUrl = '/demo.cast';
   <p class="vf-body-lead mt-8 max-w-2xl">
     The actual demo orchestration, recorded on a fresh NemoClaw dev sandbox: the
     Provider compiles and publishes a WASM skill, the Requester fetches the
-    manifest and submits encrypted data, the Broker executes and triggers MPP
-    release.
+    manifest and submits encrypted data, the Broker executes in the enclave
+    and calls capture/refund against Stripe.
   </p>
 
   <!-- Cast player container -->

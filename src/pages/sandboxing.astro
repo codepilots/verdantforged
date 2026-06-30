@@ -28,36 +28,35 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
     steps: [
       {
         n: '01',
-        title: 'The skill runs inside the enclave, not the host OS.',
-        body: 'When the worker boots, the only thing that runs is the minimal skill runtime, inside the SEV-SNP enclave. The skill never has access to the host kernel, the host filesystem, or any other process. The host OS — even if compromised — cannot read the skill\'s memory or tamper with its execution.',
+        title: 'The skill runs inside the attested worker VM.',
+        body: 'When the worker boots, the only thing that runs is the minimal skill runtime, inside an SEV-SNP-attested m6a.xlarge EC2. The skill never has access to the host kernel, the host filesystem, or any other process. The host OS — even if compromised — cannot read the skill\'s memory or tamper with its execution. Network egress is gated by an OpenShell policy that drops everything except the broker API.',
       },
       {
         n: '02',
         title: 'Network egress is default-DENY. The only allowed destination is the broker.',
-        body: 'The enclave boots with an OpenShell-style policy that drops all outbound traffic by default. The only allowed destination is the broker\'s API endpoint, which the skill needs to call the LLM proxy. A skill cannot phone home, cannot call an attacker\'s server, cannot exfiltrate the data you sent it.',
+        body: 'The worker boots with an OpenShell-style policy that drops all outbound traffic by default. The only allowed destinations are the broker\'s API (for fetching job envelopes and uploading result blobs) and the broker\'s LLM proxy endpoint (for prompt-template skills routed through the NemoClaw sandbox). A skill cannot phone home or call an attacker\'s server.',
       },
       {
         n: '03',
         title: 'Resource caps are enforced by the runtime, measured into the attestation.',
-        body: 'Every job has hard limits: max 100 million fuel (instruction count), max 120 seconds wall-clock, max payload 10 MB, max output 1 MiB, max memory declared by the manifest. The runtime kills the skill if it tries to exceed any of these. The actual values used are part of the signed receipt, so the requester can verify the skill did not exceed what was agreed.',
+        body: 'Every job has hard limits: fuel (manifest-declared up to 10⁹, typical ≤ 10⁸), wall-clock (default 30s, manifest-overridable), per-file output ≤ 50 MiB, total output ≤ 100 MiB, memory cap from the manifest. wasmtime kills the skill if it tries to exceed any of these; fuel and epoch interruption are both configured at engine construction. The actual values used are part of the signed result envelope, so the requester can verify the skill did not exceed what was agreed.',
       },
     ],
   }}
   whatStopsWhat={[
-    { attack: 'Skill runs forever (denial of service)',      fix: 'Fuel limit (≤ 100M instructions) and wall-clock timeout (≤ 120s), both enforced by the runtime' },
-    { attack: 'Skill exfiltrates data to an attacker',       fix: 'Default-DENY network policy; the only allowed egress is the broker API' },
-    { attack: 'Skill reads the host filesystem',             fix: 'No host imports exposed to the skill; the enclave is the only filesystem the skill can see' },
-    { attack: 'Skill overflows the output buffer',           fix: '1 MiB output cap, checked before the enclave writes the result' },
-    { attack: 'Skill persists state between jobs',           fix: 'Ephemeral storage; the enclave is freshly booted per execution, with no persistent mount' },
-    { attack: 'Skill calls host syscalls',                   fix: 'wasmtime-style isolation; the only available syscalls are the ones the broker explicitly exposes' },
-    { attack: 'Skill consumes all host memory',              fix: 'Memory cap is declared in the manifest and enforced by the runtime' },
-    { attack: 'Two skills see each other\'s data',           fix: 'Enclave is per-execution; no shared memory between jobs' },
+    { attack: 'Skill runs forever (denial of service)',      fix: 'wasmtime fuel (≤10⁹) + epoch-interruption wall-clock cap (default 30s, manifest-overridable)' },
+    { attack: 'Skill exfiltrates data to an attacker',       fix: 'Default-DENY OpenShell policy; egress only to broker API and broker LLM proxy' },
+    { attack: 'Skill tampers with its own WASM binary',      fix: 'Worker recomputes SHA-256 of the on-disk binary against envelope.skill_hash before wasmtime starts; mismatch is refused' },
+    { attack: 'Skill overflows the output buffer',           fix: 'Per-file ≤ 50 MiB + total output ≤ 100 MiB, enforced before S3 upload (KMS-encrypted, 24h lifecycle)' },
+    { attack: 'Skill persists state between jobs',           fix: 'Worker is ephemeral (or warm-pool with no per-job persistence); EFS envelopes fetched and deleted per-job' },
+    { attack: 'Skill consumes all host memory',              fix: 'wasmtime Store memory limit from manifest.declared max_memory_mb' },
+    { attack: 'Two skills see each other\'s data',           fix: 'Worker boots a fresh sandbox per dispatch; EFS inbox/outbox paths are job-id-scoped' },
   ]}
   lookAtTheCode={[
     {
       label: 'Resource limit enforcement',
-      detail: 'The ExecutionRequest validator enforces all eight constraints (fuel range, wall-clock range, payload size, escrow non-empty) before the enclave boots. Rejecting early is cheap; rejecting after the enclave is up wastes a sandbox.',
-      href: 'https://github.com/codepilots/tee-broker-pattern/blob/main/SECURITY_AUDIT.md',
+      detail: 'The live broker\'s `validate_submit` checks encrypted_skill / encrypted_data / stripe_pi_id / result_pubkey shape. For file jobs, an X25519 result_pubkey is required (file_encryption_required). Per-skill resource caps come from the registered WASM manifest (max_fuel, max_duration_ms, max_memory_mb).',
+      href: '/docs',
     },
     {
       label: 'The fuel meter',
