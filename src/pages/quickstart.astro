@@ -153,7 +153,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
 #    "idempotent_replay": false}
 
 # 3. Poll (auth with the job_access_token returned in step 2).
-curl -sS -H "Authorization: Bearer *** "${brokerBase}/v1/jobs/job_..."
+curl -sS -H "$JOB_AUTH_HEADER" "${brokerBase}/v1/jobs/job_..."
 
 # 4. Read the plaintext output (demo mode keeps it in result.output).
 #    Production output is encrypted — use the Python quickstart.

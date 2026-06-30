@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  VerdantForged TEE Broker — worker (burst compute).
+  m6a.xlarge instance with SEV-SNP support, NemoClaw enclave.
+  Normally launched by the broker-daemon via boto3 run-instances when a job
+  arrives; this template is provided for manual launch / debugging / a
+  pre-warmed instance for the demo.
+
+  REQUIRES: the control-plane stack must be deployed first (this template
+  depends on its EFS, security group, and IAM role outputs).
+
+Parameters:
+  KeyName:
+    Type: String
+    Description: 'EC2 key pair for SSH (leave empty for SSM-only access).'
+    Default: ''
+
+  InstanceType:
+    Type: String
+    Description: 'SEV-SNP-capable instance type.'
+    Default: 'm6a.xlarge'
+    AllowedValues:
+      - 'm6a.large'
+      - 'm6a.xlarge'
+      - 'm6a.2xlarge'
+      - 'c6a.xlarge'
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: 'Ubuntu 24.04 LTS amd64 AMI for the target region.'
+
+  WorkerSubnetId:
+    Type: String
+    Description: 'Subnet for the worker. Must be in the same VPC as the control plane. Public subnet is fine for the demo; private subnet + NAT gateway preferred for production.'
+
+  WorkerSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: 'Security group ID for the worker (sg-xxxxxxxx). Get this from the control-plane stack output WorkerSecurityGroupId.'
+
+  EfsDns:
+    Type: String
+    Description: 'EFS mount target DNS. Get this from the control-plane stack outputs: EfsDns.'
+    Default: ''
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, '']]
+
+Resources:
+  WorkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref WorkerSubnetId
+      SecurityGroupIds:
+        - !Ref WorkerSecurityGroupId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 50
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          touch /var/log/cloud-init-verdantforged-worker.marker
+          echo "Worker setup starting at $(date)" >> /var/log/cloud-init-verdantforged-worker.marker
+
+          apt-get update -qq
+          apt-get install -y -qq nfs-common docker.io >/dev/null 2>&1
+          usermod -aG docker ubuntu
+
+          # Mount EFS shared with control plane
+          mkdir -p /mnt/broker
+          echo "${EfsDns}:/ /mnt/broker nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0" >> /etc/fstab
+          mount -a || (sleep 5 && mount -a)
+
+          # TODO: NemoClaw install goes here. For now, the worker is a no-op
+          # that registers itself with the control plane and writes a heartbeat.
+          CONTROL_PLANE_IP=$(getent hosts "$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)" | awk '{print $1}' || echo "")
+          # Worker registers itself in /mnt/broker/logs/worker-heartbeat.json
+          cat > /mnt/broker/logs/worker-heartbeat.json <<HEOF
+          {
+            "instance_id": "$(curl -s http://169.254.169.254/latest/meta-data/instance-id)",
+            "started_at": "$(date -u +%FT%TZ)",
+            "status": "ready"
+          }
+          HEOF
+
+          echo "Worker ready at $(date)" >> /var/log/cloud-init-verdantforged-worker.marker
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-worker'
+        - Key: Project
+          Value: verdantforged
+        - Key: Role
+          Value: tee-worker
+        - Key: ManagedBy
+          Value: cloudformation
+
+  WorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref WorkerRoleName
+
+  WorkerRoleName:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-worker-role'
+
+Outputs:
+  WorkerInstanceId:
+    Description: Worker EC2 instance ID
+    Value: !Ref WorkerInstance
+
+  WorkerPrivateIp:
+    Description: Private IP of the worker (use this for control-plane -> worker communication)
+    Value: !GetAtt WorkerInstance.PrivateIp
+
+  SsmCommandWorker:
+    Description: 'Open an SSM session to the worker'
+    Value: !Sub 'aws ssm start-session --target ${WorkerInstance} --region ${AWS::Region}'

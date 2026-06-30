@@ -83,8 +83,8 @@ The "forged in a rainforest" feel. Off-white background, near-black text, copper
 3. **The solution** — three roles, one verifiable pipeline (animated 3-agent diagram)
 4. **How it works** — 5 steps from SPEC, each full-bleed with screen recording
 5. **Live demo** — asciinema cast (3 min) embedded, autoplay on scroll
-6. **Security** — SEV-SNP attestation, MPP escrow, E2E encryption comparison table
-7. **Built on** — NVIDIA NemoClaw, Stripe MPP, Hermes Agent (logo row, grayscale — sourced from official brand kits with attribution; pending kit audit, fallback to text-only)
+6. **Security** — SEV-SNP attestation, Stripe PaymentIntent verify-then-capture, E2E encryption comparison table
+7. **Built on** — AMD SEV-SNP worker substrate, NemoClaw sandbox path, Stripe ACS/SPT + PaymentIntent, Hermes Agent (logo row, grayscale — sourced from official brand kits with attribution; pending kit audit, fallback to text-only)
 8. **CTA** — "Try it in your agent" + `.Agent.md` download + one-click "Send to Hermes" link
 
 ### Proposed directory layout

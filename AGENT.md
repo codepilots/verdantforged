@@ -16,7 +16,7 @@ triggers:
 agent_type: tee_broker
 version: 0.4.0
 test_broker: https://verdant.codepilots.co.uk
-source_dir: ~/hermes/competition/tee-broker-deploy/
+source_dir: ~/hermes/competition/tee-broker-site/tee-broker/
 pattern_dir: ~/hermes/competition/tee-broker-pattern/
 created: 2026-06-19
 updated: 2026-06-30
@@ -78,7 +78,7 @@ curl -sS https://verdant.codepilots.co.uk/v1/discover
 The demo path passes `"0x"` for `requester_sig` and `result_pubkey`. The broker accepts the request, the worker returns the plaintext `output` field instead of an encrypted blob. Useful for trying the API; never use in production.
 
 Two equivalent payment tokens work in demo mode:
-- **Preferred**: mint a stub `spt_demo_…` token from `POST /v1/demo/shared-payment-token` and pass it as `shared_payment_token` (or as `Authorization: Bearer *** or `Payment: spt_demo_…`).
+- **Preferred**: mint a stub `spt_demo_…` token from `POST /v1/demo/shared-payment-token` and pass it as `shared_payment_token` (or put the token in an Authorization bearer header or `Payment: spt_demo_…`).
 - **Legacy**: pass `stripe_pi_id: "pi_demo_0001"` directly. Still accepted for backward compatibility.
 
 ```bash
@@ -181,12 +181,21 @@ python3 tests/verify-sandbox-execution.py    # fuel + epoch interruption + outpu
 
 - **Live test broker:** `https://verdant.codepilots.co.uk` (demo mode, no real card charged)
 - **Marketing site root:** `~/hermes/competition/tee-broker-site/`
-- **Live broker source:** `~/hermes/competition/tee-broker-deploy/` (Python control plane + worker poller + NemoClaw install + OpenShell policy + Stripe bootstrap)
+- **Live broker source:** `~/hermes/competition/tee-broker-site/tee-broker/` (Python control plane + worker poller + NemoClaw install + OpenShell policy + Stripe bootstrap)
 - **Rust reference:** `~/hermes/competition/tee-broker-pattern/` (protocol reference implementation; not what's deployed)
 - **Pillar deep dives:** `/attestation`, `/security`, `/sandboxing`, `/payment`
 - **For agents:** `/agents` — the operator setup and the test broker access
 - **API reference:** `/docs` — every endpoint, every error code
 - **Hackathon info:** https://hermes-agent.nousresearch.com/docs
+
+## Workspace Agent Skills
+
+The workspace includes active agent skills in the local customizations directory `~/hermes/competition/tee-broker-site/.agents/skills/`:
+- **[submit-job](file:///home/autumn/hermes/competition/tee-broker-site/.agents/skills/submit-job)**: How to submit jobs to the broker in demo/stub mode and production/encrypted mode.
+- **[verify-attestation](file:///home/autumn/hermes/competition/tee-broker-site/.agents/skills/verify-attestation)**: Guidelines and scripts for validating the AMD SEV-SNP cryptographic attestation.
+- **[tee-broker-deploy-config](file:///home/autumn/hermes/competition/tee-broker-site/.agents/skills/tee-broker-deploy-config)**: Instructions for managing, configuring, redeploying, or debugging the broker daemon.
+- **[tee-broker-security](file:///home/autumn/hermes/competition/tee-broker-site/.agents/skills/tee-broker-security)**: Security audits, checklists, threat models, and vulnerability mitigations.
+- **[verdantforged-ec2-check](file:///home/autumn/hermes/competition/tee-broker-site/.agents/skills/verdantforged-ec2-check)**: Operational procedures to verify the EC2 instances, push daemon updates, and stage code.
 
 ## What to do when a human asks
 

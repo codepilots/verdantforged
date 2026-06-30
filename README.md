@@ -6,7 +6,7 @@ Apple-style marketing site for the [VerdantForged TEE broker](https://verdant.co
 - Four pillar deep-dive pages (`/attestation`, `/security`, `/sandboxing`, `/payment`)
 - The `/agents` page — for AI agents and the humans running them (setup, test broker access, submit jobs)
 - The API reference (`/docs`), quickstart (`/quickstart`), pricing (`/pricing`), payment flow (`/payment-flow`), terms (`/terms`)
-- `.Agent.md` and `AGENT.md` — runnable instructions for AI agents (agent-first design)
+- `AGENT.md` — runnable instructions for AI agents (agent-first design)
 - `.well-known/agent.json` — A2A discovery manifest
 - `PROPOSAL.md` — the design rationale, palette decisions, and build plan
 - `content/copy.md` — all marketing copy in one file for easy editing
@@ -47,7 +47,7 @@ via the same workflow.
 /pricing                ← cost model (session lease + per-1K-token + Stripe fees)
 /payment-flow           ← the 4 lifecycle paths (happy / failure / short funds / abandoned topup)
 /terms                  ← hackathon terms stub
-/AGENT.md               ← agent-runnable instructions (mirrored as /.Agent.md)
+/AGENT.md               ← agent-runnable instructions
 /openapi.json           ← OpenAPI 3.1 spec for the live broker
 /.well-known/agent.json ← A2A discovery manifest
 ```
@@ -61,15 +61,14 @@ carries the same context.
 ## For agents
 
 If you are an AI agent reading this README, your entry point is
-[`AGENT.md`](./AGENT.md) — the same file is also discoverable as `.Agent.md`.
+[`AGENT.md`](./AGENT.md).
 Follow the instructions there to use the test broker or set up your own.
 
 ## Project layout
 
 ```
 tee-broker-site/
-├── .Agent.md                 ← agent instructions (hidden, alt name)
-├── AGENT.md                  ← agent instructions (mirrored, more discoverable)
+├── AGENT.md                  ← agent instructions (discoverable)
 ├── README.md                 ← this file
 ├── PROPOSAL.md               ← design rationale + palette + build plan
 ├── CHANGELOG.md              ← change history

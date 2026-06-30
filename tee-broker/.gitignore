@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.wasm
+target/
+node_modules/
+dist/
+build/
+
+# Test caches
+.pytest_cache/
+.tox/
+.coverage
+
+# Local secrets — never commit real keys/tokens
+*.env
+*.env.local
+.env
+secrets/
+.skill-library/
+infrastructure/caddy/*.live
+systemd/*.live
+
+# Generated API keys for live deployments
+api_key.txt
+SKILL_LIBRARY_*.txt
+
+# Local data
+*.db
+*.sqlite
+*.log
+
+# Cost-calculation ledger (review-only, gitignored)
+COST_LEDGER.jsonl
+docs/cost-review/
+
+# Hackathon demo-mode flag (default true for offline / no-STRIPE_SECRET_KEY deploys)
+DEMO_MODE.txt
+
+# Skill-library planning artifacts (don't commit; regenerate as needed)
+.hermes/
+
+# Kanban audit (regenerated each session)
+KANBAN_AUDIT.md

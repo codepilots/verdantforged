@@ -78,7 +78,7 @@ curl -sS https://verdant.codepilots.co.uk/v1/discover
 The demo path passes `"0x"` for `requester_sig` and `result_pubkey`. The broker accepts the request, the worker returns the plaintext `output` field instead of an encrypted blob. Useful for trying the API; never use in production.
 
 Two equivalent payment tokens work in demo mode:
-- **Preferred**: mint a stub `spt_demo_…` token from `POST /v1/demo/shared-payment-token` and pass it as `shared_payment_token` (or as `Authorization: Bearer *** or `Payment: spt_demo_…`).
+- **Preferred**: mint a stub `spt_demo_…` token from `POST /v1/demo/shared-payment-token` and pass it as `shared_payment_token` (or put the token in an Authorization bearer header or `Payment: spt_demo_…`).
 - **Legacy**: pass `stripe_pi_id: "pi_demo_0001"` directly. Still accepted for backward compatibility.
 
 ```bash

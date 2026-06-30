@@ -3,7 +3,6 @@
 # Friendly URLs for agent discovery
 /agent.json         /.well-known/agent.json     200
 /AGENTS             /AGENT.md                   301
-/.AGENTS            /.Agent.md                  301
 
 # Old sandbox alias
 /demo               /#demo                      301

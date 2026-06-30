@@ -17,7 +17,6 @@
   Content-Type: application/json
 
 /AGENT.md
-/.Agent.md
   Cache-Control: public, max-age=600, must-revalidate
   Content-Type: text/markdown; charset=utf-8
 

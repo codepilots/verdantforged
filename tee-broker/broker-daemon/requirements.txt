@@ -1,0 +1,10 @@
+aiohttp>=3.9,<4.0
+boto3>=1.34,<2.0
+# Pin to current LTS; bump in lockstep with cfn template image version
+# Stripe PaymentIntent lifecycle (t_9fbec867). >=15.2.1 matches the
+# existing stripe-backend at tee-broker-site/stripe-backend/pyproject.toml
+# (stripe-py 15.x dropped the transfer_type parameter on Transfer.create
+# — see server.py:132 in that module for the migration note). The daemon
+# imports lazily inside _stripe_client() so DEMO MODE (no STRIPE_SECRET_KEY)
+# does NOT require this to be installed on minimal control-plane hosts.
+stripe>=15.2.1

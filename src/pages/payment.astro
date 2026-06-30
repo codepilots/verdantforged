@@ -53,7 +53,7 @@ const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL :
     { attack: 'Agent reuses a spent or revoked token',         fix: 'charge_shared_payment_token() returns a structured failure (declined / token_not_found / amount_too_small); broker surfaces it as a 402 with a fresh challenge' },
     { attack: 'Broker overcharges you',                       fix: 'Stripe captures only the actual cost (padded to the per-currency minimum); the result envelope is signed by the broker and verifiable by you (broker_signature Ed25519 over result_hash|skill_hash|input_hash)' },
     { attack: 'Broker charges for a failed job',              fix: 'Failure path refunds the full hold — no partial captures, no fees retained' },
-    { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until _finalize_job runs; capture requires a verified result envelope with broker_signature' },
+    { attack: 'Broker charges you before the work runs',      fix: 'Verify-then-capture: Stripe hold is in requires_capture until _finalize_job processes the worker outbox result and adds broker_signature metadata' },
     { attack: 'You run out of funds mid-job and get overcharged', fix: 'Shortfall pauses capture and asks for a topup with a 10-minute window; no auto-charge beyond what you authorised' },
     { attack: 'You walk away from the topup request',         fix: 'After 10 minutes the original hold is refunded; the job is abandoned, not silently captured' },
     { attack: 'Broker keeps your money in case of a dispute', fix: 'Stripe\'s standard dispute process; the broker holds the broker-signed result envelope and the full audit trail as evidence' },

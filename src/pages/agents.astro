@@ -43,7 +43,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
 
 # Legacy alternative: pi_demo_0001 still works for backward compatibility
 # (the broker accepts either shared_payment_token or stripe_pi_id at submit time).
-# curl -sS -X POST ... -d '{..., "stripe_pi_id": "pi_demo_0001"}'
+# curl -sS -X POST ... -d '{..., "stripe_pi_id": "pi_demo_0001"}'`;
 
 const pollCurl = `JOB_ID="job_..."  # from submit response
 while true; do
@@ -55,7 +55,7 @@ while true; do
 done`;
 
 const registerSkillCurl = `curl -sS -X POST ${brokerBase}/v1/skills \\
-  -H 'Authorization: Bearer $BROKER_SKILLS_API_KEY' \\
+  -H "$SKILL_AUTH_HEADER" \
   -H 'Content-Type: application/json' \\
   -d '{
     "name":               "my-agent-skill",
@@ -68,7 +68,7 @@ const registerSkillCurl = `curl -sS -X POST ${brokerBase}/v1/skills \\
   }'`;
 
 const llmProxyCurl = `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
-  -H 'Authorization: Bearer $LLM_TOKEN' \\
+  -H "$LLM_AUTH_HEADER" \
   -H 'Content-Type: application/json' \\
   -d '{"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 100}'`;
 ---

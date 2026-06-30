@@ -1,0 +1,125 @@
+# OpenShell egress policy for the VerdantForged broker
+#
+# This policy governs what network destinations the broker enclave is
+# permitted to reach. Default-deny: anything not explicitly allowed is
+# blocked. The hash of this file (SHA-256) is exposed via
+# /v1/discover.attestation.policy_hash so requesters can verify the broker
+# is running with the expected egress constraints.
+#
+# Adapted from tee-broker-pattern/nemoclaw-config.md. The original allowed
+# ONLY api.stripe.com; we've expanded it to cover the realistic dependencies
+# of the live demo broker.
+
+version: "1.0"
+metadata:
+  name: verdantforged-broker-policy
+  description: "VerdantForged broker egress — LLM proxy, Stripe billing, ACME"
+
+# Default deny all
+default:
+  action: DENY
+  log: true
+
+rules:
+  # Allow Ollama Cloud (LLM proxy)
+  - name: allow-ollama-cloud
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "ollama.com"
+      port: 443
+    tlsInspection:
+      enabled: false
+    rateLimit:
+      requestsPerSecond: 50
+      burst: 100
+
+  # Allow Stripe (billing, MPP)
+  - name: allow-stripe-mpp
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "api.stripe.com"
+      port: 443
+    rateLimit:
+      requestsPerSecond: 10
+      burst: 20
+
+  # Allow Let's Encrypt (ACME cert renewal)
+  - name: allow-letsencrypt
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "acme-v02.api.letsencrypt.org"
+      port: 443
+    rateLimit:
+      requestsPerSecond: 5
+      burst: 10
+
+  # Allow DNS
+  - name: allow-dns
+    action: ALLOW
+    protocol: UDP
+    destination:
+      fqdn: "*"
+      port: 53
+    rateLimit:
+      requestsPerSecond: 100
+
+  # Allow Cloudflare DNS-over-HTTPS (for resolving ACME hostnames)
+  - name: allow-cloudflare-dns
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "1.1.1.1"
+      port: 443
+    rateLimit:
+      requestsPerSecond: 20
+
+  # Allow EFS mount (control plane ↔ EFS)
+  - name: allow-efs
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "*"
+      port: 2049
+    rateLimit:
+      requestsPerSecond: 1000
+
+  # Allow S3 (t_96b86cff — encrypted result-pack storage). The broker
+  # presigns download URLs from verdantforged-artifacts-<region>;
+  # presigning is a local boto3 call so no egress is needed for it, but
+  # the worker (which IS inside the OpenShell enclave) PUTs encrypted
+  # blobs here on every job that produces artifacts. We allow the whole
+  # *.s3.<region>.amazonaws.com subdomain (TLS-terminated at the regional
+  # S3 endpoint) and rate-limit conservatively so a compromised worker
+  # can't exfiltrate to S3 — uploads go to one specific bucket the IAM
+  # policy scopes, not arbitrary S3 keys.
+  - name: allow-s3
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "*.s3.eu-west-1.amazonaws.com"
+      port: 443
+    tlsInspection:
+      enabled: false
+    rateLimit:
+      requestsPerSecond: 20
+      burst: 50
+  - name: allow-s3-eu-west-2
+    action: ALLOW
+    protocol: TCP
+    destination:
+      fqdn: "*.s3.eu-west-2.amazonaws.com"
+      port: 443
+    tlsInspection:
+      enabled: false
+    rateLimit:
+      requestsPerSecond: 20
+      burst: 50
+
+# Explicit deny for common exfiltration targets
+denyRules:
+  - name: deny-all-other-egress
+    action: DENY
+    log: true

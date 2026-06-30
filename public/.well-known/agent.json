@@ -9,9 +9,7 @@
   "agent_instructions": {
     "url": "https://verdantforged.pages.dev/AGENT.md",
     "format": "markdown",
-    "alt_urls": [
-      "https://verdantforged.pages.dev/.Agent.md"
-    ]
+    "alt_urls": []
   },
   "capabilities": {
     "attestation": "amd-sev-snp",

@@ -1,0 +1,100 @@
+# VerdantForged TEE Broker - Caddy reverse proxy.
+# Auto-TLS via Let's Encrypt when DomainName is set (production).
+# Caddy reads env from systemd EnvironmentFile (see /etc/systemd/system/caddy.service.d/broker.conf).
+
+# VULN-S8 (kanban t_b13072b3): CORS is restricted to a single configured
+# origin (BROKER_CORS_ORIGIN, default https://verdant.codepilots.co.uk)
+# instead of wildcard `*`. Wildcard CORS allows ANY website to make
+# cross-origin requests to the broker API - for a hackathon demo that's
+# acceptable, but the default broker deploy should be locked to the
+# operator's known frontend. Caddy resolves {$VAR} at startup from the
+# process environment; if unset the placeholder expands to empty and
+# the header is dropped (safer than falling back to wildcard).
+#
+# Operators adding extra origins should set BROKER_CORS_ORIGIN to a
+# comma-separated list and adapt the header block accordingly. For
+# now we ship the single-origin default because the only client UI is
+# the verdant.codepilots.co.uk site.
+
+# Primary site: HTTPS auto-TLS for the broker domain.
+# Caddy handles ACME http-01 challenges on :80 automatically for this host.
+{$BROKER_DOMAIN:placeholder.verdantforged.invalid} {
+    encode zstd gzip
+
+    # Serve the static UI at the root path
+    handle / {
+        root * /opt/broker-daemon/static
+        file_server
+    }
+
+    # Skill Library service (2026-06-29): path-prefixed under /library/* on the
+    # broker domain. handle_path strips the /library prefix before proxying,
+    # so callers see https://verdant.codepilots.co.uk/library/healthz ->
+    # http://127.0.0.1:8091/healthz. Reads are public; writes (POST/DELETE)
+    # require Authorization: Bearer *** Same CORS origin
+    # as the broker UI (verdant.codepilots.co.uk).
+    #
+    # /library-docs/* proxies to the library's interactive Swagger UI +
+    # openapi.json without stripping the prefix, so library handlers see
+    # their natural /docs and /openapi.json paths.
+    handle_path /library/* {
+        reverse_proxy 127.0.0.1:8091
+    }
+    handle_path /library-docs/* {
+        reverse_proxy 127.0.0.1:8091
+    }
+
+    # API routes proxied to the daemon
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle /healthz {
+        reverse_proxy 127.0.0.1:8080
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        # VULN-S8: restricted origin (was `*`). Caddy resolves the
+        # placeholder from env at startup; if BROKER_CORS_ORIGIN is
+        # unset the header is dropped (fails closed).
+        Access-Control-Allow-Origin {$BROKER_CORS_ORIGIN:https://verdant.codepilots.co.uk}
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, X-Requester-Signature"
+        defer
+    }
+
+    # Handle CORS preflight
+    @preflight method OPTIONS
+    handle @preflight {
+        respond "" 204
+    }
+}
+
+# Plain HTTP on :80 - only used for Let's Encrypt http-01 challenges
+# and a fallback 503 for direct-IP access. The HTTPS site above handles
+# TLS termination for the configured domain.
+:80 {
+    # ACME challenges for the configured domain
+    @hostmatch host {$BROKER_DOMAIN}
+    handle @hostmatch {
+        redir https://{host}{uri} 308
+    }
+    # Bare-IP access or other unknown hosts: serve the static UI + proxy API
+    # (allows testing via the EIP directly when DNS isn't pointed yet)
+    handle_path /library/* {
+        reverse_proxy 127.0.0.1:8091
+    }
+    handle_path /library-docs/* {
+        reverse_proxy 127.0.0.1:8091
+    }
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle /healthz {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle / {
+        root * /opt/broker-daemon/static
+        file_server
+    }
+}

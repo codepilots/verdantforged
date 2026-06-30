@@ -88,13 +88,16 @@ cat att.json | jq 'keys'
 #   "enclave_pubkey",
 #   "family_id",
 #   "fetched_at",
-#   "measurement",
 #   "min_measurement",
+#   "nemoclaw_image",
+#   "nemoclaw_image_digest",
+#   "nemoclaw_version",
 #   "policy_hash",
 #   "report",
 #   "report_data",
 #   "tee_type",
-#   "worker_attested"
+#   "worker_attested",
+#   "worker_ed25519_pubkey"
 # ]`}</code></pre>
       <p class="vf-body-lead mt-6 max-w-2xl">
         If <code class="font-mono">attestation_source</code> is
@@ -356,10 +359,10 @@ sb = job_result["sandbox"]
 print(f"worker says: version={sb['nemoclaw_version']} "
       f"digest={sb['nemoclaw_image_digest']}")
 
-# 4. Fetch the worker's published pubkey (from /v1/discover)
+# 4. Fetch the worker's published signing pubkey (from /v1/discover)
 import requests, base64
 att = requests.get(f"{brokerBase}/v1/discover").json()["attestation"]
-worker_pub = base64.b64decode(att["enclave_pubkey"])
+worker_pub = base64.b64decode(att["worker_ed25519_pubkey"])
 
 # 5. Verify the signature
 sig_payload = (

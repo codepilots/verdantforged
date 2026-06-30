@@ -1,0 +1,733 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  VerdantForged TEE Broker — control plane (always-on).
+  t3.small instance running Caddy (TLS) + broker-daemon (Python aiohttp).
+  Holds job queue on EFS, manages worker lifecycle via boto3.
+  No SEV-SNP required — this is the dumb registry, not the enclave.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: |
+      Fully-qualified domain name pointing at this instance (A record).
+      Caddy will auto-issue a Let's Encrypt cert for it.
+      e.g. broker.verdantforged.example.com
+    Default: ''
+
+  AdminIP:
+    Type: String
+    Description: 'IP allowed for SSH (CIDR, e.g. 1.2.3.4/32). 0.0.0.0/0 = open.'
+    Default: '0.0.0.0/0'
+
+  InstanceType:
+    Type: String
+    Description: 'Control plane instance type. t3.micro if free-tier eligible, else t3.small.'
+    Default: 't3.small'
+    AllowedValues:
+      - 't3.micro'
+      - 't3.small'
+      - 't3.medium'
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 'VPC ID. Use the default VPC for the target region.'
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: 'Public subnet (one with route to internet gateway). Worker and EFS mount targets will use subnets in this VPC.'
+
+  KeyName:
+    Type: String
+    Description: 'EC2 key pair for SSH (leave empty for SSM-only access).'
+    Default: ''
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: 'Ubuntu 24.04 LTS amd64 AMI for the target region. Look up with: aws ec2 describe-images --owners 099720109477 --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" "Name=state,Values=available" --query "Images | sort_by(@,&CreationDate)|[-1].ImageId" --output text --region REGION'
+
+  WorkerInstanceType:
+    Type: String
+    Description: 'Instance type for burst worker. Must be SEV-SNP-capable (m6a.* or c6a.*).'
+    Default: 'm6a.xlarge'
+    AllowedValues:
+      - 'm6a.large'
+      - 'm6a.xlarge'
+      - 'm6a.2xlarge'
+      - 'c6a.xlarge'
+
+  WorkerAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: 'AMI for worker. Same Ubuntu 24.04 base is fine — NemoClaw installs via user-data. Or provide a pre-baked AMI with NemoClaw pre-installed to skip ~10min cold start.'
+
+  IdleBufferMinutes:
+    Type: Number
+    Description: 'Minutes to wait after the last job finishes before terminating the worker.'
+    Default: 10
+    MinValue: 1
+    MaxValue: 60
+
+  SkillsApiKey:
+    Type: String
+    Description: |
+      API key for POST /v1/skills (VULN-S2). Leave empty to let
+      bootstrap-control-plane.sh generate one with openssl rand. Pin to a
+      specific value if you want stable credentials across redeploys.
+    Default: ''
+    NoEcho: true
+
+  KeepPlaintextForDemo:
+    Type: String
+    Description: |
+      Set to 1 to keep plaintext output in the result envelope alongside the
+      encrypted ciphertext (VULN-S3 — hackathon demo default). Set to 0 in
+      production so the plaintext is redacted and only available inside the
+      recipient's decrypted envelope.
+    Default: '1'
+    AllowedValues:
+      - '0'
+      - '1'
+
+  StripeSecretKey:
+    Type: String
+    Description: |
+      Stripe secret key for PaymentIntent capture/refund (t_9fbec867).
+      Leave empty to run the broker in DEMO MODE (format validation only).
+      Set to a sk_test_... key for real capture/refund. Never logged, never
+      included in stack outputs. Forwarded to the broker via config.env
+      (chmod 0600).
+    Default: ''
+    NoEcho: true
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, '']]
+  HasDomain: !Not [!Equals [!Ref DomainName, '']]
+
+Resources:
+  # ---- EFS: shared storage between control plane and worker ----
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-efs'
+        - Key: Project
+          Value: verdantforged
+      LifecyclePolicies:
+        - TransitionToIA: AFTER_30_DAYS
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS NFS ingress from control plane and worker
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+          Description: NFS from control plane
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !GetAtt WorkerSecurityGroup.GroupId
+          Description: NFS from worker
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-efs-sg'
+
+  EfsMountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Ref SubnetId
+      SecurityGroups:
+        - !Ref EfsSecurityGroup
+
+  # ---- Control plane security group ----
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Control plane - TLS + SSH
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for public job submission
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for Lets Encrypt http-01 challenge and HTTPS redirect
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminIP
+          Description: SSH from admin
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound (daemon needs AWS API + outbound webhook)
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-control-sg'
+
+  # ---- Worker security group (defined here so control plane can ref it; no instance yet) ----
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: TEE worker - NemoClaw + enclave. Locked to control plane.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound (NemoClaw image pull + Stripe MPP egress)
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-worker-sg'
+
+  # Cross-SG rules are standalone resources to avoid a CloudFormation
+  # dependency cycle between the two security-group definitions.
+  WorkerToBrokerProxyIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ControlPlaneSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref WorkerSecurityGroup
+      Description: Worker to broker daemon port 8080 for LLM proxy
+
+  ControlToWorkerIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8789
+      ToPort: 8789
+      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+      Description: Internal job-poll endpoint from control plane
+
+  # ---- Control plane IAM role ----
+  ControlPlaneRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: WorkerLifecycle
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # All lifecycle actions are unconditional. The broker is a
+              # burst-compute layer that owns its own VPC/subnet/SG and
+              # lives behind a public endpoint; trust is bounded by the
+              # role itself + the worker SG + the EFS mount, NOT by IAM
+              # tag conditions.
+              #
+              # Tag conditions don't work here because:
+              #  - RunInstances evaluates against sub-resources
+              #    (network-interface, volume, ...) that have no tags at
+              #    creation time.
+              #  - CreateTags is the call that APPLIES the tags — they
+              #    can't already be present when you ask to set them.
+              #  - ResourceTag conditions also fail on TerminateInstances
+              #    when the broker tries to garbage-collect orphans that
+              #    may have lost their tags.
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeImages
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcs
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:CreateTags
+                Resource: '*'
+        - PolicyName: PassRoleToWorker
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt WorkerRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+        # CFN introspection (bootstrap reads stack outputs to build
+        # config.env + EFS mount target). Scoped to the control-plane
+        # stack ARN — broker can't read other stacks in the account.
+        - PolicyName: ReadOwnStack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:DescribeStackEvents
+                Resource: !Ref 'AWS::StackId'
+        # Broker SecureString config. deploy.sh may persist these parameters
+        # locally before bootstrap; bootstrap-control-plane.sh fetches/preserves
+        # them when rebuilding /opt/broker-daemon/config.env. Scope to the
+        # broker parameter prefix so the role cannot enumerate arbitrary account
+        # parameters. Missing parameters are handled explicitly by bootstrap
+        # (Stripe falls back to demo mode; LLM reports upstream_not_configured;
+        # onboard token is generated locally for clean deploys).
+        - PolicyName: ReadBrokerSecureConfig
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/verdantforged/broker/stripe-secret-key'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/verdantforged/broker/llm-api-key'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/verdantforged/broker/onboard-token'
+              - Effect: Allow
+                Action: kms:Decrypt
+                # The default SSM SecureString key is aws/ssm. If the
+                # deployer uses a customer-managed KMS key, scope this
+                # to that key ARN — see deploy.sh for the put-parameter
+                # call which uses --key-id when STRIPE_KMS_KEY_ID is set.
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
+        # Artifact bucket access (t_96b86cff). Control plane READS
+        # (GetObject, ListBucket) to presign download URLs and DELETES
+        # (DeleteObject) on cleanup. It never PUTs — the worker does
+        # that. Scope to the bucket ARN only (not '*') so a future
+        # bucket cannot be touched accidentally.
+        #
+        # Input attachment flow (t_0ef31767): the control plane also
+        # HEADs input files (HeadObject) to verify a /ready call has
+        # uploaded everything, and PUTs them on behalf of clients via
+        # presigned URLs (PutObject is what the signer role needs —
+        # boto3's generate_presigned_url call requires the signer to
+        # hold PutObject on the key prefix). We add those actions here
+        # so the same control-plane role handles both flows without a
+        # second policy attach.
+        - PolicyName: ArtifactBucketAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  # S3 HeadObject is authorized by s3:GetObject; there is no
+                  # standalone s3:HeadObject IAM action.
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-control-role'
+
+  ControlPlaneInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ControlPlaneRole
+
+  # ---- Worker IAM role (defined here so control plane can PassRole; no instance yet) ----
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        # Artifact bucket (t_96b86cff) — the worker UPLOADs encrypted
+        # result packs (PutObject).
+        #
+        # Input attachment flow (t_0ef31767): the worker also FETCHes
+        # each input file at job start (GetObject) and DELETEs it
+        # immediately after (DeleteObject) so no plaintext input
+        # persists on broker storage. Both actions are scoped to the
+        # same artifact bucket since inputs and outputs share it
+        # (inputs/ prefix vs outputs/ — the lifecycle rule sweeps
+        # either after 24h).
+        - PolicyName: ArtifactBucketUpload
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-worker-role'
+
+  # Instance profile wrapper for WorkerRole — required because RunInstances
+  # accepts IamInstanceProfile.arn, not a bare Role ARN.
+  WorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref WorkerRole
+      InstanceProfileName: !Sub '${AWS::StackName}-worker-instance-profile'
+
+  # ---- Artifact bucket (t_96b86cff — encrypted S3 result packs) ----
+  #
+  # Stores worker-uploaded result-pack blobs. Each blob is already
+  # encrypted client-side to the requester's X25519 pubkey before upload;
+  # SSE-KMS here is the AT-REST defence-in-depth (in case the client-
+  # side encryption was skipped or the result_pubkey was the demo "0x"
+  # sentinel). Objects auto-delete after 24h via LifecycleConfiguration
+  # so storage cost stays bounded.
+  #
+  # Public access fully blocked (all 4 settings) — the bucket is only
+  # ever reached via presigned URLs generated by the broker, never via
+  # the public S3 endpoint.
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'verdantforged-artifacts-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+            BucketKeyEnabled: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteAfter24h
+            Status: Enabled
+            ExpirationInDays: 1
+            NoncurrentVersionExpirationInDays: 1
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - HEAD
+              - PUT
+            AllowedOrigins:
+              - !Sub 'https://${DomainName}'
+            ExposedHeaders:
+              - ETag
+              - x-amz-checksum-sha256
+            MaxAge: 900
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: verdantforged
+        - Key: Purpose
+          Value: encrypted-result-pack-storage
+
+  # Bucket policy: explicitly allow only the broker and worker roles.
+  # Deny everyone else (defence-in-depth on top of public-access-block).
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBrokerAndWorker
+            Effect: Allow
+            Principal:
+              AWS:
+                - !GetAtt ControlPlaneRole.Arn
+                - !GetAtt WorkerRole.Arn
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:DeleteObject
+              - s3:ListBucket
+            Resource:
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+              - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+
+  # ---- Elastic IP for control plane ----
+  ControlPlaneEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eip'
+
+  # ---- Control plane instance ----
+  ControlPlaneInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref ControlPlaneSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          touch /var/log/cloud-init-verdantforged-control.marker
+          echo "Control plane setup starting at $(date)" >> /var/log/cloud-init-verdantforged-control.marker
+
+          apt-get update -qq
+          apt-get install -y -qq python3 python3-pip python3-venv nfs-common awscli >/dev/null 2>&1
+
+          # Mount EFS
+          mkdir -p /mnt/broker
+          echo "${EfsFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /mnt/broker nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0" >> /etc/fstab
+          mount -a
+
+          mkdir -p /mnt/broker/jobs/inbox /mnt/broker/jobs/outbox /mnt/broker/results /mnt/broker/logs
+
+          # Install Caddy
+          apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+          apt-get update -qq
+          apt-get install -y -qq caddy >/dev/null 2>&1
+
+          # Install broker-daemon
+          mkdir -p /opt/broker-daemon
+          cat > /opt/broker-daemon/daemon.py <<'PYEOF'
+          #!/usr/bin/env python3
+          # placeholder — replaced by deploy.sh with real daemon.py
+          pass
+          PYEOF
+
+          cat > /opt/broker-daemon/caddy <<'CADDYEOF'
+          placeholder
+          CADDYEOF
+
+          cat > /opt/broker-daemon/config.env <<EOF
+          BROKER_DOMAIN=${DomainName}
+          BROKER_REGION=${AWS::Region}
+          BROKER_EFS_MOUNT=/mnt/broker
+          # Artifact S3 bucket (t_96b86cff — encrypted result packs).
+          # Daemon presigns download URLs from this bucket; worker uploads
+          # to it. SSE-KMS + 24h lifecycle managed by CloudFormation.
+          BROKER_ARTIFACT_BUCKET=verdantforged-artifacts-${AWS::Region}
+          BROKER_VPC_ID=${VpcId}
+          BROKER_SUBNET_ID=${SubnetId}
+          BROKER_WORKER_SG=${WorkerSecurityGroup}
+          BROKER_WORKER_AMI=${WorkerAmiId}
+          BROKER_WORKER_INSTANCE_TYPE=${WorkerInstanceType}
+          BROKER_WORKER_IAM_ROLE=${WorkerInstanceProfile}
+          BROKER_WORKER_USER_DATA_URL=file:///opt/broker-daemon/worker-user-data.sh
+          BROKER_IDLE_BUFFER_MINUTES=${IdleBufferMinutes}
+          DEMO_TOKEN_CAP=***          BROKER_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+          BROKER_LLM_MODEL=gemini-2.5-flash
+          # Skill registration API key (VULN-S2). If unset, POST /v1/skills
+          # is refused. The bootstrap-control-plane.sh generates one with
+          # openssl rand if CFN doesn't provide one. Set SkillsApiKey as a
+          # CFN parameter to pin it (and to skip the random default).
+          BROKER_SKILLS_API_KEY=${SkillsApiKey}
+          # Plaintext-output redaction (VULN-S3). Default ON for hackathon
+          # demo so verify-crypto-e2e.py's plaintext-equivalence check passes
+          # against the live broker. Set to 0 in production.
+          BROKER_KEEP_PLAINTEXT_FOR_DEMO=${KeepPlaintextForDemo}
+          # Stripe PaymentIntent lifecycle (t_9fbec867). Empty = DEMO MODE.
+          STRIPE_SECRET_KEY=${StripeSecretKey}
+          EOF
+
+          # Placeholder systemd unit; deploy.sh replaces with real daemon + Caddyfile
+          cat > /etc/systemd/system/broker-daemon.service <<'SVCEOF'
+          [Unit]
+          Description=VerdantForged Broker Daemon
+          After=network-online.target
+          Wants=network-online.target
+          [Service]
+          Type=simple
+          EnvironmentFile=/opt/broker-daemon/config.env
+          ExecStart=/usr/bin/python3 /opt/broker-daemon/daemon.py
+          Restart=on-failure
+          RestartSec=5
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          # Worker user-data template (rendered at run-instances time by daemon)
+          cat > /opt/broker-daemon/worker-user-data.sh <<'WDEOF'
+          #!/bin/bash
+          set -euo pipefail
+          touch /var/log/cloud-init-verdantforged-worker.marker
+          apt-get update -qq
+          apt-get install -y -qq nfs-common >/dev/null 2>&1
+          mkdir -p /mnt/broker
+          echo '__EFS_DNS__:/ /mnt/broker nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0' >> /etc/fstab
+          mount -a
+          # TODO: replace with real NemoClaw setup when ready
+          echo "Worker placeholder ready" >> /var/log/cloud-init-verdantforged-worker.marker
+          WDEOF
+
+          # Caddyfile placeholder
+          cat > /etc/caddy/Caddyfile <<'CEOF'
+          :80 {
+              respond "control plane bootstrap pending — see /var/log/cloud-init-verdantforged-control.marker"
+          }
+          CEOF
+
+          systemctl daemon-reload
+          systemctl enable broker-daemon
+          systemctl start broker-daemon || echo "broker-daemon failed to start — check /var/log/broker-daemon.log"
+          systemctl reload caddy || true
+
+          echo "Control plane setup complete at $(date)" >> /var/log/cloud-init-verdantforged-control.marker
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-control'
+        - Key: Project
+          Value: verdantforged
+        - Key: Role
+          Value: control-plane
+        - Key: ManagedBy
+          Value: cloudformation
+
+  ControlPlaneEIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      EIP: !Ref ControlPlaneEIP
+      InstanceId: !Ref ControlPlaneInstance
+
+Outputs:
+  ControlPlaneInstanceId:
+    Description: Control plane EC2 instance ID
+    Value: !Ref ControlPlaneInstance
+    Export:
+      Name: !Sub '${AWS::StackName}-control-instance-id'
+
+  ControlPlanePublicIP:
+    Description: Elastic IP for the control plane
+    Value: !Ref ControlPlaneEIP
+    Export:
+      Name: !Sub '${AWS::StackName}-control-public-ip'
+
+  ControlPlanePublicDNS:
+    Description: Public DNS name of the control plane
+    Value: !GetAtt ControlPlaneInstance.PublicDnsName
+
+  BrokerUrl:
+    Description: |
+      HTTPS endpoint for job submission (after DNS is pointed at the EIP and Caddy provisions a cert).
+      If DomainName is empty, use http://<PublicIP> temporarily — Caddy will self-sign.
+    Value: !If
+      - HasDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'http://${ControlPlaneEIP}'
+
+  EfsFileSystemId:
+    Description: EFS filesystem ID (passed to worker template)
+    Value: !Ref EfsFileSystem
+    Export:
+      Name: !Sub '${AWS::StackName}-efs-id'
+
+  EfsDns:
+    Description: EFS mount target DNS name
+    Value: !Sub '${EfsFileSystem}.efs.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-efs-dns'
+
+  WorkerSecurityGroupId:
+    Description: Security group the worker must use (passed to worker template)
+    Value: !Ref WorkerSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-worker-sg-id'
+
+  WorkerRoleArn:
+    Description: IAM role ARN for the worker (passed to worker template)
+    Value: !GetAtt WorkerRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-worker-role-arn'
+
+  ArtifactBucketName:
+    Description: |
+      Encrypted S3 bucket for result-pack artifacts (t_96b86cff). Worker
+      uploads here; broker presigns download URLs from here. Objects
+      auto-delete after 24h.
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-artifact-bucket-name'
+
+  WorkerInstanceProfileArn:
+    Description: IAM instance profile ARN for the worker (RunInstances needs this, not RoleArn)
+    Value: !GetAtt WorkerInstanceProfile.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-worker-instance-profile-arn'
+
+  WorkerSubnetIds:
+    Description: |
+      Subnet(s) the worker can run in. For demo, the same public subnet as control plane is fine.
+      For production, prefer a private subnet + NAT gateway.
+    Value: !Ref SubnetId
+    Export:
+      Name: !Sub '${AWS::StackName}-worker-subnet-ids'
+
+  VpcId:
+    Description: VPC the broker runs in (echoed from the parameter for daemon config.env)
+    Value: !Ref VpcId
+
+  ControlPlaneSubnetId:
+    Description: Subnet the control plane runs in (echoed for daemon config.env)
+    Value: !Ref SubnetId
+
+  ControlPlaneSecurityGroupId:
+    Description: SG of the control plane (echoed for daemon config.env)
+    Value: !Ref ControlPlaneSecurityGroup
+
+  WorkerAmiId:
+    Description: |
+      AMI used for the worker (echoed from parameter so bootstrap can
+      populate BROKER_WORKER_AMI in config.env).
+    Value: !Ref WorkerAmiId
+
+  ControlPlaneAmiId:
+    Description: AMI used for the control plane
+    Value: !Ref AmiId
+
+  SsmCommandControl:
+    Description: 'Open an SSM session to the control plane'
+    Value: !Sub 'aws ssm start-session --target ${ControlPlaneInstance} --region ${AWS::Region}'
+
+  TeardownCommand:
+    Description: 'Tear down everything: delete this stack AND the worker template stack'
+    Value: !Sub |
+      aws cloudformation delete-stack --stack-name ${AWS::StackName} --region ${AWS::Region}
+      aws cloudformation delete-stack --stack-name ${AWS::StackName}-worker --region ${AWS::Region} 2>/dev/null || true

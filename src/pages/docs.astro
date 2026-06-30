@@ -71,7 +71,7 @@ const endpoints: Array<{
     method: 'POST',
     path: '/v1/jobs',
     purpose: 'Submit a job. Returns 202 with `job_id`, `state: queued`, and a per-job `job_access_token` used to authenticate status polling and artifact downloads. The worker receives a separate internal `llm_token` (10-min TTL) via the EFS envelope. Idempotent: send the same `client_req_id` twice and you get the original job back (`idempotent_replay: true`). For file jobs, include `input_files` to trigger the two-phase flow — the response is then `state: awaiting_worker` and the client polls GET /v1/jobs/{id} for presigned upload URLs. Returns 402 Payment Required with a WWW-Authenticate Stripe ACS challenge when no payment token is presented.',
-    auth: 'No auth header. Payment is presented as a Stripe ACS Shared Payment Token (spt_…) — either in the JSON body (shared_payment_token / spt / payment_token / agent_payment_token), as `Authorization: Bearer spt_…`, or as a `Payment: spt_…` / `X-Payment: spt_…` header. In demo mode (no STRIPE_SECRET_KEY on the server, or BROKER_PAYMENT_STUB_MODE=1), the broker accepts stub tokens prefixed `spt_demo_` (mint via POST /v1/demo/shared-payment-token) and legacy `stripe_pi_id: pi_demo_…` placeholders.',
+    auth: 'No API auth header. Payment is presented as a Stripe ACS Shared Payment Token (spt_…) — either in the JSON body (shared_payment_token / spt / payment_token / agent_payment_token), in an Authorization bearer header, or as a `Payment: spt_…` / `X-Payment: spt_…` header. In demo mode (no STRIPE_SECRET_KEY on the server, or BROKER_PAYMENT_STUB_MODE=1), the broker accepts stub tokens prefixed `spt_demo_` (mint via POST /v1/demo/shared-payment-token) and legacy `stripe_pi_id: pi_demo_…` placeholders.',
     request: `{
   "client_req_id":      "my-unique-id-001",   // required, ≤128 chars, idempotency key
   "encrypted_skill":    "summarize",           // required, skill name or registered id
@@ -123,7 +123,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'GET',
     path: '/v1/jobs/{job_id}',
     purpose: 'Poll a job. While `state` is `queued` or `running`, `result` and `payment` are absent. On `completed`, `result` carries the encrypted output, model metadata, signatures, and artifact URLs. The `payment` block surfaces the Stripe capture/refund outcome without a second Stripe call.',
-    auth: 'Authorization: Bearer <job_access_token>. The token is returned at job submission and required for all job-scoped endpoints.',
+    auth: 'Use the job access authorization header. The token is returned at job submission and required for all job-scoped endpoints.',
     response: `{
   "job_id":     "job_5f9e3a...",
   "state":      "completed",     // queued | running | completed | failed | timeout | awaiting_topup
@@ -166,7 +166,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     "held_amount_cents": 5            // original PI held amount
   }
 }`,
-    curl: `curl -sS -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_5f9e3a...`,
+    curl: `curl -sS -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a...`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
     ],
@@ -176,7 +176,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'GET',
     path: '/v1/jobs/{job_id}/artifacts',
     purpose: 'Returns the artifact manifest augmented with per-file presigned S3 download URLs (15-min TTL). Files are encrypted client-side (X25519 + ChaCha20-Poly1305) to your `result_pubkey`. S3 objects auto-delete after 24 hours.',
-    auth: 'Authorization: Bearer <job_access_token>. Required for all job-scoped endpoints.',
+    auth: 'Use the job access authorization header. Required for all job-scoped endpoints.',
     response: `{
   "count": 1,
   "encryption": "x25519-chacha20poly1305",
@@ -192,7 +192,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
   ],
   "primary": { /* same shape, always the first file */ }
 `,
-    curl: `curl -sS -H 'Authorization: Bearer <job_access_token> ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
+    curl: `curl -sS -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts`,
     errors: [
       { status: '404', body: `{"error": "no artifacts"}` },
     ],
@@ -202,9 +202,9 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'GET',
     path: '/v1/jobs/{job_id}/artifacts/{filename}',
     purpose: 'Returns a 302 redirect to a presigned S3 GET URL (15-min TTL). Filename MUST appear in the manifest (allow-list); names containing `..` segments are rejected.',
-    auth: 'Authorization: Bearer <job_access_token>. Required for all job-scoped endpoints.',
+    auth: 'Use the job access authorization header. Required for all job-scoped endpoints.',
     response: '302 redirect with `Location: <presigned S3 URL>`',
-    curl: `curl -sS -L -H 'Authorization: Bearer jobtok_...' ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts/output.txt`,
+    curl: `curl -sS -L -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a.../artifacts/output.txt`,
     errors: [
       { status: '400', body: `{"error": "invalid filename"}` },
       { status: '404', body: `{"error": "file not in manifest"}` },
@@ -216,7 +216,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'POST',
     path: '/v1/skills',
     purpose: 'Register a new skill (or a new version of an existing one). Exactly one of `prompt_template` or `wasm_ref` must be provided. Resource limits are bounded above the built-in stubs (256 MB / 60 s / 10M fuel default) and capped below 4 GB / 600 s / 100M fuel.',
-    auth: '`Authorization: Bearer <BROKER_SKILLS_API_KEY>`. If the server key is unset, registration is refused with 503.',
+    auth: 'Use the broker skills authorization header. If the server key is unset, registration is refused with 503.',
     request: `{
   "name":               "my-skill",              // required, slug 3-64 chars
   "version":            "0.1.0",                 // required, semver (default 0.1.0)
@@ -237,7 +237,7 @@ Location: /v1/skills/my-skill@0.1.0
 
 { "name": "my-skill", "version": "0.1.0", ... }`,
     curl: `curl -sS -X POST ${brokerBase}/v1/skills \\
-  -H 'Authorization: Bearer <BROKER_SKILLS_API_KEY>' \\
+  -H "$SKILL_AUTH_HEADER" \\
   -H 'Content-Type: application/json' \\
   -d '{
     "name":               "my-skill",
@@ -283,7 +283,7 @@ Location: /v1/skills/my-skill@0.1.0
     method: 'POST',
     path: '/v1/llm/chat/completions',
     purpose: 'Workers call this with their per-job `llm_token`. The broker validates the token, checks the account daily cap (50,000 tokens), forwards a whitelist-stripped body to the configured upstream LLM (Ollama, Gemini, OpenAI, ...) using its private key, records usage three ways (per-token / per-account-per-day / per-job), and returns the upstream response with `_billing` metadata appended. The real LLM API key never enters the worker.',
-    auth: '`Authorization: Bearer <llm_token>` (10-min TTL, per-job, issued by `POST /v1/jobs`).',
+    auth: 'Use the internal LLM authorization header (10-min TTL, per-job, issued by POST /v1/jobs and passed to the worker).',
     request: `{
   "model":     "<ignored — broker always uses its configured model>",
   "messages":  [{"role": "user", "content": "Summarize: ..."}],
@@ -306,7 +306,7 @@ Location: /v1/skills/my-skill@0.1.0
   }
 }`,
     curl: `curl -sS -X POST ${brokerBase}/v1/llm/chat/completions \\
-  -H 'Authorization: Bearer <llm_token>' \\
+  -H "$LLM_AUTH_HEADER" \\
   -H 'Content-Type: application/json' \\
   -d '{"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 100}'`,
     errors: [
@@ -322,13 +322,13 @@ Location: /v1/skills/my-skill@0.1.0
     method: 'GET',
     path: '/v1/llm/usage/{job_id}',
     purpose: 'Cumulative LLM token usage and call count for a specific job (across all worker proxy calls).',
-    auth: 'Authorization: Bearer <...3e.',
+    auth: 'Use the internal LLM authorization header.',
     response: `{
   "job_id":          "job_5f9e3a...",
   "llm_tokens_used": 229,
   "llm_calls":       1
 }`,
-    curl: `curl -sS -H 'Authorization: Bearer <llm_token>' ${brokerBase}/v1/llm/usage/job_5f9e3a...`,
+    curl: `curl -sS -H "$LLM_AUTH_HEADER" ${brokerBase}/v1/llm/usage/job_5f9e3a...`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
     ],
@@ -338,14 +338,14 @@ Location: /v1/skills/my-skill@0.1.0
     method: 'POST',
     path: '/v1/jobs/{job_id}/ready',
     purpose: 'Phase-2 of the two-phase file job flow. After the client has PUT all declared input files to their presigned S3 URLs, this call verifies every file is present (HeadObject per key), transitions the job from awaiting_inputs to queued, writes the EFS envelope with S3 input keys, and kicks the worker. Idempotent: a second call against a queued/running job returns 409 (state mismatch) rather than 200.',
-    auth: 'Authorization: Bearer <...03e.',
+    auth: 'Use the job access authorization header.',
     request: '(bodyless — the broker re-derives the input_files list from the stored request body)',
     response: `{
   "job_id": "job_5f9e3a...",
   "state":  "queued",
   "message": "inputs verified, job queued"
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../ready`,
+    curl: `curl -sS -X POST -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a.../ready`,
     errors: [
       { status: '404', body: `{"error": "not found"}` },
       { status: '409', body: `{"error": "job is in state queued, not awaiting_inputs", "code": "wrong_state"}` },
@@ -399,7 +399,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'POST',
     path: '/v1/jobs/{job_id}/topup',
     purpose: 'Handle insufficient funds. When a job completes but the held amount is less than the actual cost, the job transitions to state=awaiting_topup and the encrypted result is withheld. The client calls this endpoint with a new PaymentIntent ID (stripe_pi_id, legacy) or a new Stripe ACS Shared Payment Token (shared_payment_token / spt) covering the shortfall. On success the broker captures the topup instrument, transitions to completed, and releases the result. Idempotent: the broker caches the first successful topup and returns it on retry.',
-    auth: 'Authorization: Bearer <...03e.',
+    auth: 'Use the job access authorization header.',
     request: `{
   "stripe_pi_id": "pi_topup_xxx"
 }`,
@@ -407,7 +407,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
   "status":  "succeeded",
   "message": "topup captured, result released"
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../topup -d '{"stripe_pi_id": "pi_topup_xxx"}'`,
+    curl: `curl -sS -X POST -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a.../topup -d '{"stripe_pi_id": "pi_topup_xxx"}'`,
     errors: [
       { status: '400', body: `{"error": "invalid stripe_pi_id format"}` },
       { status: '404', body: `{"error": "not found"}` },
@@ -419,7 +419,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'POST',
     path: '/v1/jobs/{job_id}/ack',
     purpose: 'Customer confirms receipt of a completed job. The threat model flags that 24h result retention is shorter than the Stripe chargeback window (120+ days). This endpoint pins a delivery-confirmation timestamp, the customer proof text, and the source IP — the trio the operator surfaces to Stripe dispute evidence. Idempotent: a second ack returns the original timestamp.',
-    auth: 'Authorization: Bearer <...03e.',
+    auth: 'Use the job access authorization header.',
     request: `{
   "proof": "I received and verified the output."
 }`,
@@ -428,7 +428,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
   "acked_at":   "2026-06-28T07:05:00+00:00",
   "ack_proof": "I received and verified the output."
 }`,
-    curl: `curl -sS -X POST -H 'Authorization: Bearer <job_access_token>' ${brokerBase}/v1/jobs/job_5f9e3a.../ack -d '{"proof": "Received."}'`,
+    curl: `curl -sS -X POST -H "$JOB_AUTH_HEADER" ${brokerBase}/v1/jobs/job_5f9e3a.../ack -d '{"proof": "Received."}'`,
     errors: [
       { status: '400', body: `{"error": "body must include non-empty 'proof' string", "code": "proof_required"}` },
       { status: '404', body: `{"error": "job not found", "code": "not_found"}` },
@@ -452,7 +452,7 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
     method: 'POST',
     path: '/v1/skills/{name}/wasm',
     purpose: 'Upload the WASM binary for a registered skill. The skill must already exist (POST /v1/skills). The binary is stored on EFS and its SHA-256 is verified against the manifest hash declared at registration. Max 50 MiB.',
-    auth: 'Authorization: Bearer <...EY>.',
+    auth: 'Use the broker skills authorization header.',
     request: 'Raw binary body (application/octet-stream). The name path segment must match the registered skill name.',
     response: `{
   "name":    "photo-glow-up",
@@ -461,7 +461,10 @@ curl -sS -X POST ${brokerBase}/v1/jobs \\
   "size":    182272,
   "stored":  true
 }`,
-    curl: `curl -sS -X POST ${brokerBase}/v1/skills/photo-glow-up/wasm \\\\\n  -H 'Authorization: Bearer <...EY>' \\\\\n  -H 'Content-Type: application/octet-stream' \\\\\n  --data-binary @photo-glow-up.wasm`,
+    curl: `curl -sS -X POST ${brokerBase}/v1/skills/photo-glow-up/wasm \\
+  -H "$SKILL_AUTH_HEADER" \\
+  -H 'Content-Type: application/octet-stream' \\
+  --data-binary @photo-glow-up.wasm`,
     errors: [
       { status: '401', body: `{"error": "missing or invalid Authorization header", "code": "skills_auth_required"}` },
       { status: '404', body: `{"error": "skill not found"}` },
@@ -527,7 +530,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
               <p class="font-display font-semibold text-ink mt-3 text-display-sm">Stripe ACS spt_…</p>
               <p class="text-body-sm text-ink-soft mt-4">
                 <code class="font-mono text-copper">shared_payment_token</code> field,
-                <code class="font-mono text-copper">Authorization: Bearer spt_…</code>, or
+                <code class="font-mono text-copper">Authorization bearer</code> header or
                 <code class="font-mono text-copper">Payment: spt_…</code> header.
                 Out-of-band token from the Stripe Link CLI (live) or
                 <code class="font-mono text-copper">/v1/demo/shared-payment-token</code> (demo).
@@ -538,7 +541,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
               <p class="vf-eyebrow text-verdigris-deep">Per-job</p>
               <p class="font-display font-semibold text-ink mt-3 text-display-sm">job_access_token</p>
               <p class="text-body-sm text-ink-soft mt-4">
-                <code class="font-mono text-copper">Authorization: Bearer &lt;jo...de></code>.
+                <code class="font-mono text-copper">job_access_token</code> authorization header.
                 Issued at <code class="font-mono text-copper">POST /v1/jobs</code>.
                 Required for job-scoped endpoints: status polling, artifacts, topup, ack, ready.
               </p>
@@ -547,7 +550,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
               <p class="vf-eyebrow text-verdigris-deep">Per-job (internal)</p>
               <p class="font-display font-semibold text-ink mt-3 text-display-sm">llm_token</p>
               <p class="text-body-sm text-ink-soft mt-4">
-                <code class="font-mono text-copper">Authorization: Bearer &lt;ll...de></code>.
+                <code class="font-mono text-copper">llm_token</code> authorization header.
                 10-min TTL. Passed to the worker via EFS envelope (never returned to the client).
                 Workers use this for the LLM proxy. Per-job budget cap (50k tokens/day/account).
               </p>
@@ -556,7 +559,7 @@ const methodColor = (m: string) => m === 'GET' ? 'text-verdigris-deep' : 'text-c
               <p class="vf-eyebrow text-verdigris-deep">Server-side</p>
               <p class="font-display font-semibold text-ink mt-3 text-display-sm">BROKER_SKILLS_API_KEY</p>
               <p class="text-body-sm text-ink-soft mt-4">
-                <code class="font-mono text-copper">Authorization: Bearer &lt;BR...de></code>.
+                <code class="font-mono text-copper">BROKER_SKILLS_API_KEY</code> authorization header.
                 Operator-configured. Used only by
                 <code class="font-mono text-copper">POST /v1/skills</code> and
                 <code class="font-mono text-copper">POST /v1/skills/&#123;name&#125;/wasm</code>.

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VerdantForged — TEE Broker</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --fg: #e6edf3;
+            --muted: #8b949e;
+            --border: #30363d;
+            --card: #161b22;
+            --green: #3fb950;
+            --blue: #58a6ff;
+            --purple: #bc8cff;
+            --orange: #f0883e;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            padding: 2rem;
+        }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { font-size: 2.2rem; margin-bottom: 0.5rem; }
+        .tagline { color: var(--muted); font-size: 1.1rem; margin-bottom: 2rem; }
+        .status-bar {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+        .status-pill {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 0.4rem 1rem;
+            font-size: 0.9rem;
+        }
+        .status-pill .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .dot.green { background: var(--green); }
+        .dot.blue { background: var(--blue); }
+        .dot.orange { background: var(--orange); }
+        .sponsors {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .sponsor-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .sponsor-card h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+        .sponsor-card .role { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem; }
+        .sponsor-card .detail { font-size: 0.9rem; }
+        .sponsor-card.nvidia { border-top: 3px solid var(--green); }
+        .sponsor-card.stripe { border-top: 3px solid var(--blue); }
+        .sponsor-card.nous { border-top: 3px solid var(--purple); }
+        .api-section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .api-section h2 { font-size: 1.2rem; margin-bottom: 0.75rem; }
+        .api-section code {
+            background: #1c2128;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 0.85rem;
+            color: var(--blue);
+        }
+        .endpoint { color: var(--green); }
+        .method { color: var(--orange); font-weight: bold; }
+        pre {
+            background: #1c2128;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+        .footer { color: var(--muted); font-size: 0.8rem; text-align: center; margin-top: 2rem; }
+        @media (max-width: 768px) { .sponsors { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>VerdantForged</h1>
+    <p class="tagline">Trusted Execution Environment Broker — attested compute marketplace</p>
+
+    <div class="sponsors">
+        <div class="sponsor-card nvidia">
+            <h3>NVIDIA</h3>
+            <p class="role">NemoClaw sandbox</p>
+            <p class="detail">Ensures that agents can be run securely on shared hardware</p>
+        </div>
+        <div class="sponsor-card stripe">
+            <h3>Stripe</h3>
+            <p class="role">Payment Infrastructure</p>
+            <p class="detail">Per-session leasing. PaymentIntent validation on every job submission. No job runs without verified payment.</p>
+        </div>
+        <div class="sponsor-card nous">
+            <h3>Nous Research</h3>
+            <p class="role">Agent Intelligence</p>
+            <p class="detail">Hermes Agent orchestrates the full pipeline: skill dispatch, job submission, result retrieval. The dumb-agent framing proves the protocol works.</p>
+        </div>
+    </div>
+
+    <div class="api-section">
+        <h2>API Endpoints</h2>
+        <p><span class="method">GET</span> <code class="endpoint">/v1/discover</code> — Broker capabilities, attestation, pricing</p>
+        <p><span class="method">POST</span> <code class="endpoint">/v1/jobs</code> — Submit a job to the TEE worker</p>
+        <p><span class="method">GET</span> <code class="endpoint">/v1/jobs/{job_id}</code> — Poll job status</p>
+        <p><span class="method">GET</span> <code class="endpoint">/healthz</code> — Health check</p>
+    </div>
+
+    <div class="api-section">
+        <h2>Quick Start</h2>
+        <pre>curl -X POST https://verdant.codepilots.co.uk/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_req_id": "my-unique-id",
+    "encrypted_skill": "summarize",
+    "encrypted_data": "...",
+    "requester_sig": "...",
+    "result_pubkey": "...",
+    "stripe_pi_id": "pi_xxx"
+  }'
+
+# Poll for result
+curl https://verdant.codepilots.co.uk/v1/jobs/{job_id}</pre>
+    </div>
+
+    <div class="api-section">
+        <h2>Supported Skills</h2>
+        <p><code>code-review</code> · <code>summarize</code> · <code>photo-glow-up</code></p>
+    </div>
+
+    <p class="footer">VerdantForged — NVIDIA × Stripe × Nous Research Hackathon · June 2026</p>
+</div>
+</body>
+</html>

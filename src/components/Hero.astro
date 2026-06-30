@@ -7,7 +7,7 @@
 
 const lines = [
   { text: 'The broker that runs your agent', emphasis: false },
-  { text: 'inside a hardware-attested enclave.', emphasis: false },
+  { text: 'inside a hardware-attested worker.', emphasis: false },
   { text: 'Attestation. Security. Sandboxing. Payment.', emphasis: true },
 ];
 ---
@@ -45,10 +45,10 @@ const lines = [
       style="transition-delay: 900ms;"
     >
       VerdantForged is the runtime that brokers attested execution of agent
-      workloads. You hand it a job — a skill, an input, a payment escrow —
-      and it deploys the work inside a fresh AMD SEV-SNP enclave on a
-      dedicated TEE worker. Your skill and your data are encrypted to
-      silicon. Try the live test broker or set up
+      workloads. You hand it a job — a skill, encrypted input, and a Stripe
+      payment token — and it routes the work to an AMD SEV-SNP TEE worker.
+      Your skill and data are encrypted to the worker boundary; Stripe captures
+      or refunds when the job finalizes. Try the live test broker or set up
       your own.
     </p>
 
