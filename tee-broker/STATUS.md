@@ -1,3 +1,5 @@
+> **2026-07-01 LLM auth update**: the persistent sandbox `LLM HTTP 401: invalid or expired LLM token` was fixed live by adding a JSON body sideband fallback (`verdant_llm_token`, `verdant_job_id`) for the worker → `inference.local` → broker proxy path. Live E2E `job_b93fe6a410fb72d6fb1fbbea` completed in `nemoclaw-sandbox` with `attested=True`, model `minimax-m3:cloud`, and artifact `output.txt` (2248 bytes). See `SESSION_LOG.md` for hashes and deployment notes.
+
 # VerdantForged TEE Broker — Status Writeup (2026-06-28)
 
 > **2026-06-30 gold worker AMI**: baked from live worker `i-0cd8b60358d6d5509` after NemoClaw/OpenShell completed the expensive sandbox build and after queue/key scrub. AMI: `ami-099e2272620073023` (`verdantforged-nemoclaw-gold-worker-20260630T163844Z-i-0cd8b60358d6d5509`), state observed `available` at `2026-06-30T16:51:28Z`. Source worker had Docker layers `openshell/sandbox-from:1782835611` and `ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:v0.0.55` (both 4.36GB), with live queue cleaned to 0 before imaging.

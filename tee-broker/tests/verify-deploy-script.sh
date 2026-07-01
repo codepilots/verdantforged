@@ -52,6 +52,9 @@ check "16. deploy and bootstrap preserve NemoClaw onboard token" "grep -q '/verd
 check "17. deploy defaults to gold worker AMI and pushes it into config" "grep -q 'ami-099e2272620073023' '$REPO/deploy.sh' && grep -q 'WorkerAmiId=\$WORKER_AMI_ID' '$REPO/deploy.sh' && grep -q 'export BROKER_WORKER_AMI' '$REPO/deploy.sh'"
 check "18. CFN lets control plane read broker SecureString config" "grep -q '/verdantforged/broker/stripe-secret-key' '$REPO/cloudformation-control-plane.yaml' && grep -q '/verdantforged/broker/llm-api-key' '$REPO/cloudformation-control-plane.yaml' && grep -q '/verdantforged/broker/onboard-token' '$REPO/cloudformation-control-plane.yaml'"
 check "19. deploy refreshes metadata on already-running workers" "grep -q 'REFRESH_EXISTING_WORKERS' '$REPO/deploy.sh' && grep -q 'openshell.ai/sandbox-name' '$REPO/deploy.sh' && grep -q '.nemoclaw_metadata' '$REPO/deploy.sh'"
+check "20. daemon renders slim RunInstances user-data loader" "grep -q 'user-data is limited to 16,384 bytes' '$REPO/broker-daemon/daemon.py' && grep -q 'worker-bootstrap.rendered.sh' '$REPO/broker-daemon/daemon.py' && grep -q 'len(loader.encode' '$REPO/broker-daemon/daemon.py'"
+check "21. rendered worker user-data size regression" "python3 '$REPO/tests/verify-worker-userdata-limit.py' >/dev/null"
+check "22. worker attestation writer exports SEV fields to Python" "grep -q 'export SEV_SOURCE SEV_MEASUREMENT SEV_REPORT SEV_CERT_CHAIN SEV_CHIP_ID SEV_FAMILY_ID SEV_REPORT_DATA' '$REPO/worker/user-data.sh'"
 
 echo ""
 echo "=== Summary ==="

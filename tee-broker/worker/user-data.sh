@@ -94,6 +94,7 @@ fi
 mkdir -p /mnt/broker/logs /mnt/broker/jobs/inbox /mnt/broker/jobs/outbox
 
 log "step 3: writing worker-attestation.json (source=$SEV_SOURCE)"
+export SEV_SOURCE SEV_MEASUREMENT SEV_REPORT SEV_CERT_CHAIN SEV_CHIP_ID SEV_FAMILY_ID SEV_REPORT_DATA
 ATTEST_EPOCH=$(date +%s)
 python3 - "$INSTANCE_ID" "$ATTEST_EPOCH" <<PY
 import json, os, pathlib, sys

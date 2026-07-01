@@ -756,12 +756,12 @@ def draw_ui(stdscr: curses.window):
         elif state.stage == "done":
             # Slide navigation keys
             if ch == curses.KEY_RIGHT or ch == ord(' ') or ch == 10:
-                if state.current_result_slide == 6:
+                if state.current_result_slide == 2:
                     state.stage = "presentation"
                     state.current_slide = 10
                     state.slide_start_time = time.time()
                 else:
-                    state.current_result_slide = min(6, state.current_result_slide + 1)
+                    state.current_result_slide = min(3, state.current_result_slide + 1)
             elif ch == curses.KEY_LEFT or ch == 263 or ch == 127:  # Backspace or left arrow
                 if state.current_result_slide == 0:
                     state.stage = "presentation"
@@ -878,8 +878,8 @@ def render_running_slide(win: curses.window, width: int, height: int):
 
 
 def render_result_slides(win: curses.window, width: int, height: int):
-    # Total 7 slides (index 0 to 6)
-    total_slides = 7
+    # Total 4 slides (index 0 to 3)
+    total_slides = 4
     current_page = state.current_result_slide + 1
 
     win.addstr(1, 2, f"[{current_page}/{total_slides}] RESULT SLIDE", curses.color_pair(2) | curses.A_BOLD)
@@ -954,64 +954,6 @@ def render_result_slides(win: curses.window, width: int, height: int):
                 win.addstr(12, 2, f"Error: {str(sb.get('error'))[:28]}", curses.color_pair(3))
         else:
             win.addstr(5, 2, "Sandbox attestation not available", curses.color_pair(4))
-
-    elif state.current_result_slide == 4:
-        # Slide 5: LLM Token Usage
-        win.addstr(3, 2, "Verifiable Resource Usage", curses.A_BOLD | curses.color_pair(2))
-        usage = state.job_result.get("usage", {})
-        win.addstr(5, 2, "Tokens Consumed:")
-        win.addstr(6, 4, f"Prompt:     {usage.get('prompt_tokens', 'N/A')}", curses.color_pair(1))
-        win.addstr(7, 4, f"Completion: {usage.get('completion_tokens', 'N/A')}", curses.color_pair(1))
-
-        # Fun mini ASCII chart
-        p_tok = usage.get('prompt_tokens', 0) or 0
-        c_tok = usage.get('completion_tokens', 0) or 0
-        total = p_tok + c_tok
-        if total > 0:
-            p_bar = int(25 * (p_tok / total))
-            c_bar = 25 - p_bar
-            win.addstr(9, 4, "Prompt:     " + "#" * p_bar, curses.color_pair(1))
-            win.addstr(10, 4, "Completion: " + "#" * c_bar, curses.color_pair(5))
-
-    elif state.current_result_slide == 5:
-        # Slide 6: Decrypted Result Summary
-        win.addstr(3, 2, "TEE Security Scan Findings", curses.A_BOLD | curses.color_pair(2))
-
-        # Try to parse findings count
-        findings_count = 0
-        if isinstance(state.decrypted_result, dict):
-            findings = state.decrypted_result.get("findings")
-            if isinstance(findings, list):
-                findings_count = len(findings)
-            else:
-                findings_count = 5  # default demo show
-
-        win.addstr(5, 2, f"Detected Vulnerabilities: {findings_count}", curses.color_pair(3) | curses.A_BOLD)
-        win.addstr(7, 2, "Key Issues Identified:")
-        # Render a couple of mock/shortened findings to fit layout
-        if isinstance(state.decrypted_result, dict) and "findings" in state.decrypted_result:
-            for idx, f in enumerate(state.decrypted_result["findings"][:2]):
-                file_short = f.get("filename", "")[:12]
-                sev = f.get("severity", "?")
-                win.addstr(8 + idx, 4, f"- [{file_short}] Sev {sev}: {f.get('why_it_matters', 'Risk')[:18]}...", curses.color_pair(4))
-        else:
-            win.addstr(8, 4, "- Hardcoded secret key in config", curses.color_pair(4))
-            win.addstr(9, 4, "- Insecure DNS resolution logic", curses.color_pair(4))
-            win.addstr(10, 4, "- Unauthenticated admin route", curses.color_pair(4))
-
-    elif state.current_result_slide == 6:
-        # Slide 7: Artifacts Saved
-        win.addstr(3, 2, "Secure Artifact Output", curses.A_BOLD | curses.color_pair(2))
-        win.addstr(5, 2, "Saved to:")
-        win.addstr(6, 4, state.artifacts_dir[:32], curses.color_pair(1))
-
-        win.addstr(8, 2, "Files Decrypted:")
-        if state.artifacts:
-            for idx, art in enumerate(state.artifacts[:2]):
-                win.addstr(9 + idx, 4, f"* {art.get('filename')} ({art.get('size_bytes')}B)", curses.color_pair(2))
-        else:
-            win.addstr(9, 4, "* security_report.md (3.2KB)", curses.color_pair(2))
-            win.addstr(10, 4, "* findings.json (1.1KB)", curses.color_pair(2))
 
         win.addstr(height - 3, 2, "Demo Complete! Press [SPACE] to continue", curses.color_pair(5) | curses.A_BOLD)
 

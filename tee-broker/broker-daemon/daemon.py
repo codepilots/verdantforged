@@ -1818,40 +1818,83 @@ class WorkerManager:
         return None
 
     def _render_worker_user_data(self) -> str:
-        # Resolve EFS DNS from worker template exports OR env
+        # EC2 RunInstances user-data is limited to 16,384 bytes. The real
+        # worker bootstrap intentionally lives on EFS because it installs
+        # NemoClaw, captures SEV-SNP metadata, writes systemd units, and grows
+        # often. Keep RunInstances user-data as a tiny loader that mounts EFS,
+        # renders the EFS-resident worker-bootstrap.sh, then executes it.
         efs_dns = os.environ.get("BROKER_EFS_DNS", "")
-        # Inline template — keep small enough for CFN 16KB limit
-        # Real install of NemoClaw happens via /opt/broker-daemon/worker-bootstrap.sh
-        # which is rendered and pushed to EFS by the daemon on first launch.
         bootstrap_path = LOGS / "worker-bootstrap.sh"
         if not bootstrap_path.exists():
             raise RuntimeError(
                 f"worker-bootstrap.sh missing at {bootstrap_path} — "
                 "run scripts/bootstrap-control-plane.sh on the control plane first"
             )
-        bootstrap = bootstrap_path.read_text()
-        rendered = bootstrap.replace("__EFS_DNS__", efs_dns)
-        rendered = rendered.replace("__ARTIFACT_BUCKET__", ARTIFACT_BUCKET)
-        rendered = rendered.replace("__ARTIFACT_REGION__", BROKER_REGION)
-        # Inject the onboard token so NemoClaw onboard can validate against
-        # the broker LLM proxy. The bootstrap script references
-        # ${BROKER_ONBOARD_TOKEN} but user-data runs in a bare shell without
-        # config.env sourced, so we resolve it here at render time.
         onboard_token = os.environ.get("BROKER_ONBOARD_TOKEN", "")
-        rendered = rendered.replace("${BROKER_ONBOARD_TOKEN:-onboard-placeholder}", onboard_token)
-        # NemoClaw stub-mode toggle (2026-06-30). When
-        # BROKER_NEMOCLAW_STUB_MODE=1 on the broker, the user-data.sh
-        # template's __NEMOCLAW_STUB_MODE__ placeholder expands to 1 and
-        # the bootstrap writes a shell shim at /usr/local/bin/nemohermes
-        # that emulates `nemohermes <sb> exec` by calling worker-agent.py
-        # directly on the host. The result envelope records
-        # execution_mode="nemoclaw-sandbox-stub" so a reviewer can see
-        # the run was not attested. Default off (real NemoClaw required).
         stub_mode = "1" if os.environ.get(
             "BROKER_NEMOCLAW_STUB_MODE", "").strip().lower() in (
             "1", "true", "yes", "on", "demo", "stub") else "0"
-        rendered = rendered.replace("__NEMOCLAW_STUB_MODE__", stub_mode)
-        return f"#!/bin/bash\nset -euo pipefail\n{rendered}"
+        env = {
+            "EFS_DNS": efs_dns,
+            "ARTIFACT_BUCKET": ARTIFACT_BUCKET,
+            "ARTIFACT_REGION": BROKER_REGION,
+            "BROKER_ONBOARD_TOKEN": onboard_token,
+            "NEMOCLAW_STUB_MODE": stub_mode,
+        }
+        loader = """#!/bin/bash
+set -u
+MARKER=/var/log/cloud-init-verdantforged-worker-loader.marker
+log(){ echo "[$(date -u +%H:%M:%S)] $*" | tee -a "$MARKER"; }
+log "worker loader starting"
+EFS_DNS=@@EFS_DNS@@
+ARTIFACT_BUCKET=@@ARTIFACT_BUCKET@@
+ARTIFACT_REGION=@@ARTIFACT_REGION@@
+BROKER_ONBOARD_TOKEN=@@BROKER_ONBOARD_TOKEN@@
+NEMOCLAW_STUB_MODE=@@NEMOCLAW_STUB_MODE@@
+mkdir -p /mnt/broker /opt/worker
+for i in 1 2 3; do
+  if command -v mount.nfs >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq nfs-common python3 >/dev/null 2>&1); then break; fi
+  log "package install attempt $i failed; retrying"; sleep 10
+done
+sed -i '\\#/mnt/broker nfs4#d' /etc/fstab 2>/dev/null || true
+printf '%s:/ /mnt/broker nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,_netdev 0 0\n' "$EFS_DNS" >> /etc/fstab
+for i in 1 2 3 4 5; do
+  mountpoint -q /mnt/broker || mount /mnt/broker 2>/dev/null || mount -a 2>/dev/null || true
+  mountpoint -q /mnt/broker && break
+  log "EFS mount attempt $i failed; retrying"; sleep 5
+done
+mountpoint -q /mnt/broker || { log "FATAL EFS not mounted"; exit 1; }
+SRC=/mnt/broker/logs/worker-bootstrap.sh
+DST=/opt/worker/worker-bootstrap.rendered.sh
+[ -s "$SRC" ] || { log "FATAL missing $SRC"; exit 1; }
+export ARTIFACT_BUCKET ARTIFACT_REGION BROKER_ONBOARD_TOKEN NEMOCLAW_STUB_MODE EFS_DNS SRC DST
+python3 - <<'PY'
+import os, pathlib
+src = pathlib.Path(os.environ['SRC'])
+dst = pathlib.Path(os.environ['DST'])
+text = src.read_text()
+for old, new in {
+    '__EFS_DNS__': os.environ.get('EFS_DNS', ''),
+    '__ARTIFACT_BUCKET__': os.environ.get('ARTIFACT_BUCKET', ''),
+    '__ARTIFACT_REGION__': os.environ.get('ARTIFACT_REGION', ''),
+    '${BROKER_ONBOARD_TOKEN:-onboard-placeholder}': os.environ.get('BROKER_ONBOARD_TOKEN', ''),
+    '__NEMOCLAW_STUB_MODE__': os.environ.get('NEMOCLAW_STUB_MODE', '0'),
+}.items():
+    text = text.replace(old, new)
+dst.write_text(text)
+dst.chmod(0o755)
+print(f"rendered {dst} bytes={dst.stat().st_size}")
+PY
+log "executing rendered worker bootstrap"
+exec bash "$DST"
+"""
+        import shlex
+        for key, value in env.items():
+            loader = loader.replace(f"@@{key}@@", shlex.quote(value))
+        if len(loader.encode("utf-8")) >= 12_000:
+            raise RuntimeError(
+                f"worker loader user-data unexpectedly large: {len(loader.encode('utf-8'))} bytes")
+        return loader
 
     async def note_job_finished(self) -> None:
         """Called when a job completes. Starts/refreshes the idle timer."""
@@ -5310,11 +5353,34 @@ async def llm_proxy(request: web.Request) -> web.Response:
     real API key never enters the worker or the NemoClaw sandbox.
     """
 
-    # Auth: require a valid per-job LLM token
+    # Get request body first: inference.local/OpenShell may rebuild the
+    # outbound request and drop both Authorization and broker-specific custom
+    # headers. Sandbox workers therefore also put the Verdant token in the
+    # JSON body. We read it for broker auth only, then strip it via the
+    # forward-body whitelist below so it is never sent to the real LLM API.
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    body_token = str(body.get("verdant_llm_token") or "").strip()
+
+    # Auth: require a valid per-job LLM token.  OpenShell's managed
+    # inference.local route may consume/replace the provider Authorization
+    # header, so sandbox workers also send the Verdant job token in an
+    # explicit sideband header and JSON body. Prefer the header when present,
+    # then body token, then the standard OpenAI-compatible Authorization
+    # header for direct callers.
+    sideband_token = request.headers.get("X-Verdant-LLM-Token", "").strip()
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    if sideband_token:
+        llm_token = sideband_token
+    elif body_token:
+        llm_token = body_token
+    elif auth_header.startswith("Bearer "):
+        llm_token = auth_header[len("Bearer "):].strip()
+    else:
         return web.json_response({"error": "missing or invalid Authorization header"}, status=401)
-    llm_token = auth_header[len("Bearer "):].strip()
 
     # Allow a dedicated onboard token (from config.env) for non-job
     # calls (NemoClaw onboard validation, health checks). This is a
@@ -5351,14 +5417,11 @@ async def llm_proxy(request: web.Request) -> web.Response:
             if expires < datetime.now(timezone.utc):
                 return web.json_response({"error": "LLM token expired"}, status=401)
             job_id = token_row["job_id"]
+            body_job_id = str(body.get("verdant_job_id") or "").strip()
+            if body_job_id and body_job_id != job_id:
+                return web.json_response({"error": "LLM token/job mismatch"}, status=401)
             stripe_pi_id = token_row["stripe_pi_id"]
             already_used = token_row["tokens_used"]
-
-    # Get request body
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid json"}, status=400)
 
     # Check daily account cap before calling
     today = datetime.now(timezone.utc).isoformat()[:10]

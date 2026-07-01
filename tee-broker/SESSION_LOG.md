@@ -11,6 +11,27 @@
 
 ---
 
+## 2026-07-01 — LLM token 401 fix deployed
+
+Diagnosed persistent sandbox `LLM HTTP 401: invalid or expired LLM token` on established workers as an auth transport problem through `inference.local`/OpenShell, not a boot race. The broker token row was valid, so the proxy was receiving the wrong/missing token after request forwarding.
+
+Deployed a body-sideband fallback in addition to the existing headers:
+
+- `broker-daemon/daemon.py`: accepts `X-Verdant-LLM-Token`, then JSON `verdant_llm_token`, then `Authorization`; validates optional `verdant_job_id`; strips sideband fields from the upstream LLM body.
+- `worker/worker-agent.py`: includes `verdant_llm_token` and `verdant_job_id` in the JSON body sent through `https://inference.local/v1/chat/completions`.
+- `worker/poller.py`: mirrors the same body/header transport for direct broker proxy calls.
+
+Live deployment verification:
+
+- Control plane `i-0a537c94d3a3f37af`: daemon hash `fed2f025f15d5bb0364d7167ca160aebdc9885a4ccdfccfadd14659c77d03dd7`.
+- EFS worker templates: `worker-poller.py` hash `87d7003ced3a4689e0718612d8fa1489000b9eedf780d4a428ce0028fae33cee`; `worker-agent.py` hash `02326e94527be8022c8eade6fb98ca59ca2c3177047e2eb113621170795364de`.
+- Active worker `i-09a07d47dcada35f3` updated at `/opt/worker/` with the same worker hashes.
+- E2E command `python3 scripts/run_file_job_e2e.py --demo-spt --file BUGS.md --file deploy.sh` completed as job `job_b93fe6a410fb72d6fb1fbbea` with `execution_mode=nemoclaw-sandbox`, `attested=True`, model `minimax-m3:cloud`, usage `17576 prompt + 512 completion`, artifact `output.txt` 2248 bytes.
+
+Operational note: restarting `worker-poller` killed the OpenShell sandbox container because it was in the service cgroup. Recovery required `HOME=/root nemohermes worker recover` and reloading `/opt/worker/worker-agent.py` into `/sandbox/worker-agent.py`. Avoid unnecessary `worker-poller` restarts on live workers; update EFS templates for future workers and recover/reload if a current sandbox is killed.
+
+---
+
 ## 2026-06-30 — Gold worker AMI bake
 
 Baked a reusable cold-start worker AMI from the live gold worker `i-0cd8b60358d6d5509` after NemoClaw/OpenShell completed sandbox creation and the worker successfully installed bundled skills.

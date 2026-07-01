@@ -231,8 +231,6 @@ def main() -> int:
         # another failure mode we don't need for the demo.
         "stream": False,
     }
-    body_bytes = json.dumps(body).encode("utf-8")
-
     # Authorization header: COMPATIBLE_API_KEY is the per-job ephemeral
     # broker token. NOTE: --env passes the value, not an "Authorization:
     # Bearer " prefix — we add it here so the prefix never appears in
@@ -241,6 +239,15 @@ def main() -> int:
     if not api_key:
         fail("COMPATIBLE_API_KEY not set in env — broker token missing")
 
+    # OpenShell / inference.local may rebuild the outbound request and drop
+    # both Authorization and custom headers before the broker sees it. Put the
+    # Verdant job token in the JSON body as a second sideband; the broker reads
+    # and strips this field before applying its upstream LLM whitelist, so it
+    # is never forwarded to the real model provider.
+    body["verdant_llm_token"] = api_key
+    body["verdant_job_id"] = JOB_ID
+    body_bytes = json.dumps(body).encode("utf-8")
+
     req = urllib.request.Request(
         url     = ENDPOINT_URL.rstrip("/") + "/chat/completions",
         data    = body_bytes,
@@ -248,6 +255,11 @@ def main() -> int:
         headers = {
             "Content-Type":  "application/json",
             "Authorization": f"Bearer {api_key}",
+            # OpenShell's managed inference.local path may own/replace the
+            # provider Authorization header while forwarding to the broker.
+            # Send the per-job Verdant token in a broker-specific sideband
+            # header as well; the broker prefers this header when present.
+            "X-Verdant-LLM-Token": api_key,
             "X-Job-Id":      JOB_ID,
             "User-Agent":    f"verdantforged-worker/{SANDBOX_API_VERSION} (nemo-sandbox)",
         },

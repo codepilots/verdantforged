@@ -1809,6 +1809,8 @@ def call_broker_llm_proxy(ctx, *, llm_proxy_url, llm_token,
         "messages": list(ctx.messages),
         "max_tokens": int(max_tokens),
         "stream": False,
+        "verdant_llm_token": llm_token,
+        "verdant_job_id": getattr(ctx, "job_id", ""),
     }
     req = urllib.request.Request(
         llm_proxy_url,
@@ -1816,6 +1818,7 @@ def call_broker_llm_proxy(ctx, *, llm_proxy_url, llm_token,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {llm_token}",
+            "X-Verdant-LLM-Token": llm_token,
         },
         method="POST",
     )
