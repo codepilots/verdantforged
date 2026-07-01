@@ -29,8 +29,7 @@ for how to set up an agent and submit jobs.
 
 ## Deployment
 
-Configured for Cloudflare Pages on GitHub
-Pages fallback. Push to `codepilots/verdantforged` on GitHub and the workflow
+Configured for [GitHub pages](https://codepilots.github.io/verdantforged/) Push to `codepilots/verdantforged` on GitHub and the workflow
 at `.github/workflows/pages.yml` rebuilds the site. PR previews are served
 via the same workflow.
 
@@ -91,12 +90,6 @@ tee-broker-site/
     └── copy.md               ← all marketing copy in one place
 ```
 
-## Do not
-
-- Do not edit anything in `tee-broker-pattern/` or `tee-broker-docs-archive-2026-06-29/` from this directory
-- Do not use stock photography — site uses real screenshots and abstract motion
-- Do not use clichéd AI imagery (neural nets, glowing brains, robot heads)
-- Do not ship without `npm run build` passing cleanly first
 
 ## License
 
