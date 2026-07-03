@@ -1,0 +1,24 @@
+[worker-agent: upstream returned empty content with non-empty reasoning. Surfacing reasoning as output.]
+
+The user wants a concrete security review of the two attached files: `bake-worker-ami.py` and `deploy_skill_library.sh`. I need to:
+
+1. Identify at least 5 findings with severity, filename, line numbers, quoted snippets, why it matters, and recommended fix.
+2. Include 'Cross-file inconsistencies' section with at least 3 mismatches.
+3. Include 'Extracted facts' section with 10 exact values.
+4. Return markdown report + JSON block.
+
+Let me carefully read through both files to find concrete, file-specific security issues.
+
+**bake-worker-ami.py analysis:**
+
+Looking at the code, let me find specific issues:
+
+1. **Command injection via image_id in apply_control_plane** (lines around `apply_control_plane`): The `image_id` from `create_image` is interpolated directly into a shell command via f-string. `image_id` comes from AWS API response, but if manipulated or if the response is somehow tampered with, this could allow shell injection. EC2 image IDs are normally like `ami-xxxxxxxxxxxxxxxxx` but the sed command uses `{image_id}` in a sed replacement string. The `/` character in image_id could break sed. Actually, AMI IDs don't contain `/` normally, but they're user-controlled to some extent. More importantly, the use of f-string with `{image_id}` inside sed is a shell injection risk if the image_id contains special characters.
+
+2. **SSM command injection via instance_id** (lines in `apply_control_plane`): The `control_id` and `instance_id` come from user input or EC2 API. They get passed to `ssm_run` which sends them as commands. Wait, `instance_id` and `control_id` are passed to `ssm.send_command(InstanceIds=[...])` not embedded in the command. So that's fine. But `image_id` is embedded in the shell command via f-string.
+
+3. **Heartbeat status check can be bypassed** (line `if not force and hb.get("status") != "ready"`): The `--force` flag bypasses a critical security check. While the help text warns about it, the flag exists and could be misused.
+
+4. **NoReboot option risks filesystem consistency** (`--no-reboot` flag): This is acknowledged in the help text but is a security concern because it can lead to data corruption and potential inclusion of sensitive data in transient memory.
+
+5. **probe script uses

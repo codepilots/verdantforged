@@ -1,0 +1,26 @@
+[worker-agent: upstream returned empty content with non-empty reasoning. Surfacing reasoning as output.]
+
+The user wants a concrete security review of the two attached files. Let me analyze them carefully.
+
+The first file is `bake-worker-ami.py` - a Python script that bakes a worker EC2 instance into an AMI.
+The second file is `deploy_skill_library.sh` - a bash script that deploys a skill library to the control plane.
+
+Let me identify findings with specific line numbers and quoted snippets.
+
+**bake-worker-ami.py findings:**
+
+1. **SSM command injection via image_id in apply_control_plane** - The `image_id` from `ec2.create_image` is interpolated directly into a shell command on the control plane. While image_id is typically controlled by AWS (starts with `ami-`), the code doesn't validate it. This is a defense-in-depth issue.
+
+   Looking at line 192-194: `sed -i 's/^BROKER_WORKER_AMI=.*/BROKER_WORKER_AMI={image_id}/' "$CFG"` - if image_id contained shell metacharacters, it could break out. However, AWS image IDs are validated by AWS. Still, a defense-in-depth concern.
+
+2. **`--no-reboot` option creates inconsistent AMI** - Line 165: `ap.add_argument("--no-reboot", action="store_true", help="create image without reboot; faster but less filesystem-safe")`. This can capture filesystem in inconsistent state, potentially including sensitive data that was being written.
+
+3. **No validation of image_id format** - The image_id from `create_image` is used directly in shell commands on the control plane without sanitization. Even though AWS controls it, defense-in-depth.
+
+4. **`--keep-keys` option is dangerous and exposed via CLI** - Line 163-164. Although documented as "not recommended", it allows baking an AMI with per-instance worker keys, which would mean all instances launched from that AMI share the same keys.
+
+5. **AMI is public-by-default risk** - No `BlockDeviceMappings` encryption specified, no AMI permission lockdown (the `create_image` call doesn't set launch permissions or encryption).
+
+6. **`scrub_for_image` does not verify the worker is actually stopped** - It uses `systemctl stop worker-poller.service` with `|| true` (line 138-139) and continues if it fails. If the poller is still running, it could write back keys/heartbeat before image capture.
+
+7. **No confirmation prompt for destructive operations**
