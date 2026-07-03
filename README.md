@@ -1,6 +1,6 @@
 # VerdantForged — Marketing Site
 
-Apple-style marketing site for the [VerdantForged TEE broker](https://verdant.codepilots.co.uk). This directory contains:
+ [VerdantForged TEE broker](https://verdant.codepilots.co.uk). This directory contains:
 
 - The marketing site itself (Astro + Tailwind, single long landing page)
 - Four pillar deep-dive pages (`/attestation`, `/security`, `/sandboxing`, `/payment`)
@@ -10,6 +10,7 @@ Apple-style marketing site for the [VerdantForged TEE broker](https://verdant.co
 - `.well-known/agent.json` — A2A discovery manifest
 - `PROPOSAL.md` — the design rationale, palette decisions, and build plan
 - `content/copy.md` — all marketing copy in one file for easy editing
+- `tee-broker` - the full broker, for your own drployment on AWS.
 
 ## Quick start
 
@@ -23,13 +24,12 @@ npm run preview      # preview the build
 ## Live test broker
 
 The broker is live at `https://verdant.codepilots.co.uk`. Demo mode is on by default
-(no real card is charged). See the [agents page](https://verdantforged.pages.dev/agents)
+(no real card is charged). See the [agents page]()
 for how to set up an agent and submit jobs.
 
 ## Deployment
 
-Configured for Cloudflare Pages at **verdantforged.pages.dev** with a GitHub
-Pages fallback. Push to `codepilots/verdantforged` on GitHub and the workflow
+Configured for [GitHub pages](https://codepilots.github.io/verdantforged/) Push to `codepilots/verdantforged` on GitHub and the workflow
 at `.github/workflows/pages.yml` rebuilds the site. PR previews are served
 via the same workflow.
 
@@ -90,12 +90,6 @@ tee-broker-site/
     └── copy.md               ← all marketing copy in one place
 ```
 
-## Do not
-
-- Do not edit anything in `tee-broker-pattern/` or `tee-broker-docs-archive-2026-06-29/` from this directory
-- Do not use stock photography — site uses real screenshots and abstract motion
-- Do not use clichéd AI imagery (neural nets, glowing brains, robot heads)
-- Do not ship without `npm run build` passing cleanly first
 
 ## License
 
