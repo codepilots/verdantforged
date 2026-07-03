@@ -3473,14 +3473,16 @@ async def get_job(request: web.Request) -> web.Response:
         out["input_upload"] = upload
     out.pop("request_body", None)
     if row["state"] == "awaiting_worker":
-        state = worker_mgr.get_state()
-        if state is None:
+        get_state = getattr(worker_mgr, "get_state", None)
+        state = get_state() if callable(get_state) else getattr(worker_mgr, "_state", None)
+        instance_id = getattr(state, "instance_id", None)
+        if instance_id is None:
             out["worker_wait"] = {"worker_status": "offline", "detail": "waiting for worker launch"}
         else:
-            _identity, reason = _worker_identity_status(state.instance_id)
+            _identity, reason = _worker_identity_status(instance_id)
             out["worker_wait"] = {
                 "worker_status": "waiting_for_identity",
-                "worker_instance_id": state.instance_id,
+                "worker_instance_id": instance_id,
                 "detail": reason,
             }
     out.pop("worker_instance_id", None)
@@ -3809,7 +3811,8 @@ async def discover(request: web.Request) -> web.Response:
 
 async def healthz(request: web.Request) -> web.Response:
     """Health check with worker boot status and ETA."""
-    state = worker_mgr.get_state()
+    state_getter = getattr(worker_mgr, "get_state", None)
+    state = state_getter() if callable(state_getter) else getattr(worker_mgr, "_state", None)
     if state is None:
         return web.json_response({
             "ok": True,
@@ -3832,7 +3835,8 @@ async def healthz(request: web.Request) -> web.Response:
     boot_elapsed = hb.get("boot_elapsed_seconds", 0)
 
     now = time.time()
-    uptime = int(now - state.launched_at)
+    state_launched_at = getattr(state, "launched_at", now)
+    uptime = int(now - state_launched_at)
 
     # Known cold-start profile (seconds) — observed on m6a.xlarge eu-west-1.
     STAGE_DURATIONS = {
@@ -3890,7 +3894,7 @@ async def healthz(request: web.Request) -> web.Response:
         "ok": True,
         "worker": True,
         "worker_status": worker_status,
-        "worker_instance_id": state.instance_id,
+        "worker_instance_id": getattr(state, "instance_id", ""),
         "worker_boot_stage": boot_stage,
         "worker_boot_detail": boot_detail,
         "worker_boot_elapsed_seconds": boot_elapsed if worker_status == "booting" else 0,

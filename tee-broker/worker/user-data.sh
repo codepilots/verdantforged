@@ -213,6 +213,25 @@ if [ "$NM_OK" = "true" ]; then
 Environment=NEMOCLAW_SANDBOX_NAME=$NEMOCLAW_SANDBOX_NAME
 EOF
         systemctl daemon-reload
+        cat > /etc/systemd/system/openshell-gateway.service <<'EOF'
+[Unit]
+Description=OpenShell gateway for NemoClaw worker sandbox
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/usr/local/bin/openshell-gateway --disable-tls --bind-address 0.0.0.0 --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now openshell-gateway.service >/dev/null 2>&1 || \
+            log "step 4: WARNING openshell-gateway.service failed to start"
         NEMOCLAW_VERSION="$(nemohermes --version 2>/dev/null | head -1 || true)"
         [ -z "$NEMOCLAW_VERSION" ] && {
             log "step 4b: WARNING nemohermes --version not available, using 'unknown'"

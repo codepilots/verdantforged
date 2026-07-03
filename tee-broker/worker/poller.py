@@ -1419,6 +1419,44 @@ def _broker_ip_from_proxy_url(proxy_url):
     return os.environ.get("WORKER_BROKER_IP", "")
 
 
+def _run_nemohermes_with_transport_retry(cmd, *, input_bytes=None, timeout=None, env=None) -> subprocess.CompletedProcess[bytes]:
+    """Run nemohermes and retry on transient transport failures.
+
+    The sandbox can occasionally still be booting when the worker first
+    reaches it, which shows up as a transport / connection-refused error.
+    We retry a few times with a short exponential backoff so brief races
+    clear, but we still fail loud on real command errors.
+    """
+    last_proc: subprocess.CompletedProcess[bytes] | None = None
+    backoff_s = 1.5
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        proc = subprocess.run(
+            cmd,
+            input=input_bytes,
+            capture_output=True,
+            timeout=timeout,
+            env=env,
+        )
+        last_proc = proc
+        if proc.returncode == 0:
+            return proc
+        stderr = proc.stderr.decode(errors="replace") if proc.stderr else ""
+        stderr_l = stderr.lower()
+        retryable = (
+            "transport error" in stderr_l
+            or "connection refused" in stderr_l
+            or "tcp connect error" in stderr_l
+        )
+        if attempt < max_attempts - 1 and retryable:
+            time.sleep(backoff_s)
+            backoff_s = min(backoff_s * 2, 8)
+            continue
+        return proc
+    assert last_proc is not None
+    return last_proc
+
+
 def dispatch_to_sandbox(job_id, skill_prompt, input_data,
                         llm_token, result_pubkey,
                         broker_ip, sandbox_name=None, workspace=None):
@@ -1452,10 +1490,10 @@ def dispatch_to_sandbox(job_id, skill_prompt, input_data,
             f"tarfile.open(fileobj=sys.stdin.buffer,mode='r|').extractall({sandbox_job_dir!r}); "
             f"os.makedirs({(sandbox_job_dir + '/output')!r},exist_ok=True)"
         )
-        stage = subprocess.run(
+        stage = _run_nemohermes_with_transport_retry(
             ["nemohermes", sb, "exec", "--no-tty", "--timeout", "120",
              "--", "python3", "-c", stage_code],
-            input=archive.getvalue(), capture_output=True, timeout=180,
+            input_bytes=archive.getvalue(), timeout=180,
             env={**os.environ, "HOME": "/root"},
         )
         if stage.returncode != 0:
@@ -1512,8 +1550,8 @@ def dispatch_to_sandbox(job_id, skill_prompt, input_data,
     # shell that called the poller).
     import os as _os_mod
     host_env = {**_os_mod.environ, "HOME": "/root", "NEMOCLAW_SANDBOX_NAME": sb}
-    proc = subprocess.run(
-        cmd, capture_output=True, timeout=outer_timeout, env=host_env,
+    proc = _run_nemohermes_with_transport_retry(
+        cmd, timeout=outer_timeout, env=host_env,
     )
     if proc.returncode != 0:
         stderr = proc.stderr.decode(errors="replace")[:500] if proc.stderr else ""
@@ -1551,10 +1589,10 @@ def dispatch_to_sandbox(job_id, skill_prompt, input_data,
             "t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|'); "
             "t.add(p,arcname='output',recursive=True); t.close()"
         )
-        collected = subprocess.run(
+        collected = _run_nemohermes_with_transport_retry(
             ["nemohermes", sb, "exec", "--no-tty", "--timeout", "120",
              "--", "python3", "-c", collect_code],
-            capture_output=True, timeout=180,
+            timeout=180,
             env={**os.environ, "HOME": "/root"},
         )
         if collected.returncode != 0:
@@ -1568,10 +1606,10 @@ def dispatch_to_sandbox(job_id, skill_prompt, input_data,
                 if member.issym() or member.islnk() or ".." in Path(member.name).parts:
                     raise RuntimeError("unsafe sandbox output archive")
             tf.extractall(Path(workspace), filter="data")
-        subprocess.run(
+        _run_nemohermes_with_transport_retry(
             ["nemohermes", sb, "exec", "--no-tty", "--timeout", "30",
              "--", "rm", "-rf", sandbox_job_dir],
-            capture_output=True, timeout=60,
+            timeout=60,
             env={**os.environ, "HOME": "/root"},
         )
     return parsed
