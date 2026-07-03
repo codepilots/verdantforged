@@ -1,0 +1,25 @@
+[worker-agent: upstream returned empty content with non-empty reasoning. Surfacing reasoning as output.]
+
+The user wants a concrete security review of two attached files. Let me analyze them carefully.
+
+The user has attached two files (one is duplicated):
+1. `bake-worker-ami.py` - A Python script to bake EC2 AMIs from worker instances
+2. `deploy_skill_library.sh` - A bash script to deploy a skill library service
+
+Let me read them carefully and identify security issues.
+
+## File 1: bake-worker-ami.py
+
+Let me identify issues:
+
+1. **Unvalidated SSM command strings (command injection surface)**: The script sends shell commands via SSM that include interpolated values. Specifically in `apply_control_plane`, the `image_id` is interpolated directly into a shell command using f-strings. While `image_id` comes from EC2's `create_image` response (and is generally well-formed), if any other value like `instance_id` (line 273 - `safe_instance = re.sub(...)`) were used directly, that would be a problem. Actually looking more carefully, `instance_id` does get sanitized via `re.sub(r"[^a-zA-Z0-9-]", "-", instance_id)` for the name, but the actual SSM commands are constructed with raw values.
+
+2. **NoReboot option allows filesystem corruption in baked AMI** (line 271): The `--no-reboot` option creates an image without rebooting which can lead to inconsistent filesystem state being captured. The script even acknowledges this in the help text: "faster but less filesystem-safe". This could lead to corrupted AMIs.
+
+3. **`--keep-keys` option keeps sensitive key material in AMI** (lines 60-65): The script supports a `--keep-keys` option that prevents removal of per-instance worker keys before baking. If someone runs with `--keep-keys`, the keys will be baked into the AMI and propagated to all future workers. This is a significant security risk.
+
+4. **Heartbeat status check bypassable with `--force`**: The script allows bypassing the heartbeat readiness check. While this is a documented feature, in a CI/CD pipeline or automated use, this could lead to baking unstable workers.
+
+5. **Tags `Contains=nemoclaw-hermes-sandbox` and `Role=tee-worker-ami` are not really sensitive but the `SourceInstance` tag could leak information about the original instance** (line 281-285): tags include `SourceInstance` which could reveal infrastructure details.
+
+6. **The probe script uses

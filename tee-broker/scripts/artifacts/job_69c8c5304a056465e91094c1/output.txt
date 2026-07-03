@@ -1,0 +1,31 @@
+[worker-agent: upstream returned empty content with non-empty reasoning. Surfacing reasoning as output.]
+
+The user wants me to do a security review of two files. Let me carefully read through them to identify findings, inconsistencies, and extracted facts.
+
+Let me start by carefully analyzing `bake-worker-ami.py`:
+
+1. **Line 36-39**: `dt.datetime.utcnow()` - This is deprecated in Python 3.12+ and doesn't handle deprecation warnings well. Also, the function constructs shell commands by string interpolation with `image_id` from `apply_control_plane`.
+
+2. **Lines 45-49**: `ssm_run` function - The `Parameters={"commands": [command]}` - SSM commands are sent to the EC2 instance. The `command` parameter is then string-formatted with values that could potentially be controlled.
+
+3. **Line 219-220** in `apply_control_plane`: 
+```
+sed -i 's/^BROKER_WORKER_AMI=.*/BROKER_WORKER_AMI={image_id}/' "$CFG"
+...
+printf '\nBROKER_WORKER_AMI={image_id}\n' >> "$CFG"
+```
+This uses f-strings to inject `image_id` into shell commands. While `image_id` comes from EC2's `create_image` response, if any of the EC2 API responses were tampered with, this could allow command injection. However, the AMI ID is a controlled value from AWS. But more importantly, the script is a Python f-string interpolating into shell.
+
+4. **Line 121-122** `validate_worker`:
+```python
+code, out, err = ssm_run(ssm, instance_id, probe, timeout=90)
+if code != 0:
+    raise SystemExit(f"worker validation probe failed: {err or out}")
+```
+The error message includes raw `out` and `err` from SSM which could contain sensitive data. The script also doesn't use any authentication or authorization checks before running SSM commands.
+
+5. **NoReboot option**: Lines 251 (`ap.add_argument("--no-reboot"`) - This allows baking from a live instance without reboot, which is documented as "faster but less filesystem-safe". This could lead to inconsistent AMIs.
+
+6. **Default region**: Line 232 - `default=os.environ.get("AWS_REGION", "eu-west-1")` - hardcoded region with no validation.
+
+7. **The probe script in validate_worker** - reads sensitive files like `/mnt/broker/logs/worker-heartbeat.json
