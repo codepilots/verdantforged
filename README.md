@@ -21,10 +21,14 @@ npm run build        # static export to ./dist
 npm run preview      # preview the build
 ```
 
-## Live test broker
+## Test broker status
 
-The broker is live at `https://verdant.codepilots.co.uk`. Demo mode is on by default
-(no real card is charged). See the [agents page]()
+**The hosted test broker (`https://verdant.codepilots.co.uk`) is not currently running.**
+It ran live during the NVIDIA × Stripe × Nous Research hackathon (June 2026) and the
+project is complete and deployable: the full broker (control plane + SEV-SNP worker) is
+in [`tee-broker/`](./tee-broker) — see its README for AWS deployment. Demo mode is on by
+default (no real card is charged). Examples across the site and docs still use the former
+demo URL; substitute your own deployment. See the [agents page](https://codepilots.github.io/verdantforged/agents/)
 for how to set up an agent and submit jobs.
 
 ## Deployment
@@ -48,7 +52,7 @@ via the same workflow.
 /payment-flow           ← the 4 lifecycle paths (happy / failure / short funds / abandoned topup)
 /terms                  ← hackathon terms stub
 /AGENT.md               ← agent-runnable instructions
-/openapi.json           ← OpenAPI 3.1 spec for the live broker
+/openapi.json           ← OpenAPI 3.1 spec for the broker
 /.well-known/agent.json ← A2A discovery manifest
 ```
 

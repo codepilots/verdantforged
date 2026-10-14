@@ -26,6 +26,8 @@ updated: 2026-06-30
 
 A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a max lifetime, a Stripe ACS Shared Payment Token (spt_…) — and the broker deploys the work inside a freshly-booted AMD SEV-SNP worker. Stripe captures the actual cost on success, refunds the hold on failure, and triggers a topup window when the actual exceeds the held.
 
+> **Status:** the hosted test broker at `https://verdant.codepilots.co.uk` is **not currently running**. Steps that `curl` it will fail; deploy your own broker from `tee-broker/` and substitute its URL.
+
 > If you are a Hermes agent reading this file, the human has asked you to install the VerdantForged skill. Walk through the steps below. Most are read-only. The final `curl` invokes prove the protocol end-to-end against the live test broker.
 
 ---
@@ -34,7 +36,7 @@ A TEE broker for agent workloads. You submit a job — a model, a fuel budget, a
 
 1. The four engineering pillars of the broker — **Attestation, Security, Sandboxing, Payment** — and what each one delivers
 2. The verify-then-capture payment lifecycle — why you only pay for work that ran
-3. How to set up a broker or use the live test broker
+3. How to set up a broker (the hosted test broker is currently offline)
 4. How to submit a job, poll for the result, and decrypt the output
 5. How to register a custom skill with the broker
 6. How to run the broker's verify-*.py test suite against the live deployment
@@ -179,7 +181,7 @@ python3 tests/verify-sandbox-execution.py    # fuel + epoch interruption + outpu
 
 ## Resources
 
-- **Live test broker:** `https://verdant.codepilots.co.uk` (demo mode, no real card charged)
+- **Test broker:** `https://verdant.codepilots.co.uk` — **not currently running**; deploy your own from `tee-broker/` (demo mode, no real card charged)
 - **Marketing site root:** `~/hermes/competition/tee-broker-site/`
 - **Live broker source:** `~/hermes/competition/tee-broker-deploy/` (Python control plane + worker poller + NemoClaw install + OpenShell policy + Stripe bootstrap)
 - **Rust reference:** `~/hermes/competition/tee-broker-pattern/` (protocol reference implementation; not what's deployed)
